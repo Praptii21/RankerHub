@@ -1,0 +1,226 @@
+import React, { useState, useEffect, useRef } from "react";
+import { Link, useNavigate } from "react-router-dom";
+import { Bell, Search, Menu, X, Check, Trash2, ArrowUpRight } from "lucide-react";
+import { motion, AnimatePresence } from "framer-motion";
+import ThemeToggle from "../ui/ThemeToggle";
+import { mockNotifications } from "../../data/activities";
+
+export const Navbar = ({ toggleMobile, isMobileOpen }) => {
+  const [notifications, setNotifications] = useState(mockNotifications);
+  const [showNotifications, setShowNotifications] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [greeting, setGreeting] = useState("Hello");
+  const notificationRef = useRef(null);
+  const navigate = useNavigate();
+
+  // Close notifications dropdown on click outside
+  useEffect(() => {
+    const handleClickOutside = (event) => {
+      if (notificationRef.current && !notificationRef.current.contains(event.target)) {
+        setShowNotifications(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
+
+  // Determine animated time greeting
+  useEffect(() => {
+    const hours = new Date().getHours();
+    if (hours < 12) setGreeting("Good morning");
+    else if (hours < 18) setGreeting("Good afternoon");
+    else setGreeting("Good evening");
+  }, []);
+
+  const unreadCount = notifications.filter((n) => !n.read).length;
+
+  const markAllAsRead = () => {
+    setNotifications((prev) => prev.map((n) => ({ ...n, read: true })));
+  };
+
+  const deleteNotification = (id) => {
+    setNotifications((prev) => prev.filter((n) => n.id !== id));
+  };
+
+  const handleSearchSubmit = (e) => {
+    e.preventDefault();
+    if (searchQuery.trim()) {
+      // Mock navigation to dashboard or search page
+      navigate(`/dashboard?search=${encodeURIComponent(searchQuery)}`);
+    }
+  };
+
+  return (
+    <nav className="h-16 border-b border-slate-200/50 dark:border-slate-800/50 bg-white/50 dark:bg-slate-950/50 backdrop-blur-md sticky top-0 z-30 px-4 md:px-6 flex items-center justify-between transition-colors duration-300">
+      
+      {/* Left side: Mobile Toggle & Greeting */}
+      <div className="flex items-center gap-3">
+        <button
+          onClick={toggleMobile}
+          className="md:hidden p-2 rounded-xl border border-slate-200/50 dark:border-slate-800/50 hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-400 cursor-pointer"
+        >
+          {isMobileOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
+        </button>
+
+        {/* Animated Greeting */}
+        <motion.div
+          initial={{ opacity: 0, y: -5 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="hidden sm:block"
+        >
+          <span className="text-xs font-semibold text-slate-400 dark:text-slate-500 uppercase tracking-wider block leading-none">
+            Welcome back
+          </span>
+          <span className="text-sm md:text-base font-bold text-slate-800 dark:text-slate-100 mt-0.5 block">
+            {greeting}, <span className="text-violet-600 dark:text-violet-400 font-extrabold">Indresh</span> 👋
+          </span>
+        </motion.div>
+      </div>
+
+      {/* Middle: Search bar */}
+      <form onSubmit={handleSearchSubmit} className="max-w-xs md:max-w-md w-full mx-4 relative hidden md:block">
+        <Search className="w-4.5 h-4.5 text-slate-400 dark:text-slate-500 absolute left-3 top-1/2 -translate-y-1/2" />
+        <input
+          type="text"
+          placeholder="Search leaderboard, languages or challenges..."
+          value={searchQuery}
+          onChange={(e) => setSearchQuery(e.target.value)}
+          className="w-full pl-10 pr-4 py-2 text-sm rounded-xl border border-slate-200/60 dark:border-slate-800/60 bg-white/40 dark:bg-slate-900/40 backdrop-blur-sm focus:outline-none focus:ring-2 focus:ring-violet-500/20 focus:border-violet-500 dark:text-white transition-all placeholder:text-slate-400 dark:placeholder:text-slate-500"
+        />
+      </form>
+
+      {/* Right side: Actions, Theme, Notifications, Profile */}
+      <div className="flex items-center gap-3">
+        {/* Search toggle for small screens */}
+        <button className="md:hidden p-2 rounded-xl text-slate-600 dark:text-slate-400 hover:bg-slate-100/50 dark:hover:bg-slate-800/50 transition cursor-pointer">
+          <Search className="w-5 h-5" />
+        </button>
+
+        <ThemeToggle />
+
+        {/* Notifications Dropdown Wrapper */}
+        <div className="relative" ref={notificationRef}>
+          <motion.button
+            whileHover={{ scale: 1.05 }}
+            whileTap={{ scale: 0.95 }}
+            onClick={() => setShowNotifications(!showNotifications)}
+            className="p-2 rounded-xl border border-slate-200/50 dark:border-slate-800/50 bg-white/80 dark:bg-slate-900/80 backdrop-blur-md text-slate-700 dark:text-slate-300 w-10 h-10 flex items-center justify-center cursor-pointer hover:shadow-sm relative"
+          >
+            <Bell className="w-5 h-5" />
+            <AnimatePresence>
+              {unreadCount > 0 && (
+                <motion.span
+                  initial={{ scale: 0 }}
+                  animate={{ scale: 1 }}
+                  exit={{ scale: 0 }}
+                  className="absolute -top-1 -right-1 w-5 h-5 bg-violet-600 text-white text-[10px] font-bold rounded-full flex items-center justify-center ring-2 ring-white dark:ring-slate-950"
+                >
+                  {unreadCount}
+                </motion.span>
+              )}
+            </AnimatePresence>
+          </motion.button>
+
+          {/* Notifications Dropdown Panel */}
+          <AnimatePresence>
+            {showNotifications && (
+              <motion.div
+                initial={{ opacity: 0, y: 15, scale: 0.95 }}
+                animate={{ opacity: 1, y: 0, scale: 1 }}
+                exit={{ opacity: 0, y: 15, scale: 0.95 }}
+                transition={{ duration: 0.15 }}
+                className="absolute right-0 mt-2 w-80 md:w-96 rounded-2xl border border-slate-200/60 dark:border-slate-800/60 bg-white dark:bg-slate-900 shadow-xl overflow-hidden z-50 text-slate-800 dark:text-slate-200"
+              >
+                {/* Header */}
+                <div className="p-4 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between bg-slate-50/50 dark:bg-slate-900/50">
+                  <h3 className="font-extrabold text-sm text-slate-900 dark:text-white">Notifications</h3>
+                  {unreadCount > 0 && (
+                    <button
+                      onClick={markAllAsRead}
+                      className="text-xs font-bold text-violet-600 dark:text-violet-400 hover:underline cursor-pointer flex items-center gap-1"
+                    >
+                      <Check className="w-3.5 h-3.5" /> Mark all read
+                    </button>
+                  )}
+                </div>
+
+                {/* Items list */}
+                <div className="max-h-72 overflow-y-auto divide-y divide-slate-100 dark:divide-slate-800/50">
+                  {notifications.length > 0 ? (
+                    notifications.map((n) => (
+                      <div
+                        key={n.id}
+                        className={`p-4 transition-colors relative group flex items-start gap-3 hover:bg-slate-50 dark:hover:bg-slate-800 ${
+                          !n.read ? "bg-violet-50/20 dark:bg-violet-500/5" : ""
+                        }`}
+                      >
+                        {/* Red/Green status light */}
+                        {!n.read && (
+                          <span className="absolute top-4 left-2 w-1.5 h-1.5 rounded-full bg-violet-600" />
+                        )}
+                        <div className="flex-1 space-y-1 pl-1">
+                          <div className="flex justify-between items-start">
+                            <span className="font-semibold text-xs text-slate-900 dark:text-white leading-tight">
+                              {n.title}
+                            </span>
+                            <span className="text-[10px] text-slate-400 dark:text-slate-500 whitespace-nowrap">
+                              {n.time}
+                            </span>
+                          </div>
+                          <p className="text-xs text-slate-500 dark:text-slate-400 leading-snug">
+                            {n.description}
+                          </p>
+                        </div>
+                        {/* Actions */}
+                        <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                          <button
+                            onClick={() => deleteNotification(n.id)}
+                            className="p-1 rounded hover:bg-red-500/10 text-slate-400 hover:text-red-500 dark:hover:text-red-400 transition cursor-pointer"
+                            title="Delete"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      </div>
+                    ))
+                  ) : (
+                    <div className="p-8 text-center text-slate-400 dark:text-slate-500">
+                      <p className="text-sm font-semibold">All caught up!</p>
+                      <p className="text-xs mt-1">No notifications to show</p>
+                    </div>
+                  )}
+                </div>
+
+                {/* Footer */}
+                {notifications.length > 0 && (
+                  <div className="p-3 bg-slate-50/50 dark:bg-slate-900/50 border-t border-slate-100 dark:border-slate-800 text-center">
+                    <button
+                      onClick={() => setNotifications([])}
+                      className="text-xs text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-100 hover:underline cursor-pointer flex items-center justify-center gap-1 mx-auto"
+                    >
+                      Clear all notifications
+                    </button>
+                  </div>
+                )}
+              </motion.div>
+            )}
+          </AnimatePresence>
+        </div>
+
+        {/* Profile Avatar */}
+        <Link to="/profile" className="flex items-center gap-2 group cursor-pointer">
+          <div className="w-9 h-9 rounded-xl overflow-hidden ring-2 ring-violet-500/20 group-hover:ring-violet-500/50 transition-all duration-200">
+            <img
+              src="https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?auto=format&fit=crop&q=80&w=200"
+              alt="Indresh Profile"
+              className="w-full h-full object-cover"
+            />
+          </div>
+        </Link>
+
+      </div>
+    </nav>
+  );
+};
+
+export default Navbar;
