@@ -13,9 +13,7 @@ import {
   Search,
   Sparkles,
   ArrowRight,
-  TrendingUp,
-  Mail,
-  Link as LinkIcon
+  TrendingUp
 } from "lucide-react";
 import { Linkedin, Instagram } from "../components/ui/Icons";
 import {
@@ -62,6 +60,7 @@ export const Onboarding = () => {
   // Prefill name from GitHub when session is loaded
   useEffect(() => {
     if (userData && userData.name) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setName(userData.name);
     } else if (user && user.displayName) {
       setName(user.displayName);
@@ -72,6 +71,7 @@ export const Onboarding = () => {
   useEffect(() => {
     const savedRef = sessionStorage.getItem("referred_by_code");
     if (savedRef) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setReferralCode(savedRef);
       // Clean up after prefilling once
       sessionStorage.removeItem("referred_by_code");
@@ -81,6 +81,7 @@ export const Onboarding = () => {
   // Handle college typing search filter
   useEffect(() => {
     if (collegeSearch.trim() === "") {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setFilteredColleges(collegesList);
     } else {
       const searchLower = collegeSearch.toLowerCase();

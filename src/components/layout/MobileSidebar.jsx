@@ -17,7 +17,7 @@ import {
   UsersRound
 } from "lucide-react";
 import { Github } from "../ui/Icons";
-import { sidebarLinks, systemBadges } from "../../constants";
+import { sidebarLinks } from "../../constants";
 import LogoutConfirmModal from "../ui/LogoutConfirmModal";
 import logo from "../../assets/logo.png";
 

@@ -1,3 +1,4 @@
+/* eslint-disable react-refresh/only-export-components */
 import React, { createContext, useContext, useState, useEffect } from "react";
 import {
   onAuthStateChanged,
@@ -98,10 +99,7 @@ export const AuthProvider = ({ children }) => {
       const docSnap = await getDoc(userDocRef);
 
       if (!docSnap.exists()) {
-        // Prepare initial GitHub stats securely
-        const initialProfile = additionalInfo?.profile || {};
-        const publicRepos = initialProfile.public_repos || 0;
-        const followers = initialProfile.followers || 0;
+
         
         // Provision skeletal record with "incomplete" status so onboarding lock is active
         const skeletalUser = {
@@ -187,7 +185,7 @@ export const AuthProvider = ({ children }) => {
       try {
         const commitsRes = await axios.get(`https://api.github.com/search/commits?q=author:${username}`, { headers });
         commits = commitsRes.data.total_count || 0;
-      } catch (err) {
+      } catch {
         // Fallback calculation in case of search commit API limits / private scope restrictions
         commits = publicRepos * 12; 
       }

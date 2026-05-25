@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { Bell, Search, Menu, X, Check, Trash2, ArrowUpRight } from "lucide-react";
+import { Bell, Search, Menu, X, Check, Trash2 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import ThemeToggle from "../ui/ThemeToggle";
 import { mockNotifications } from "../../data/activities";

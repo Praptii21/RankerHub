@@ -3,12 +3,8 @@ import LottiePlayer from "../components/ui/LottiePlayer";
 import {
   MapPin,
   Calendar,
-  Sparkles,
   Award,
   ShieldCheck,
-  TrendingUp,
-  Bookmark,
-  CheckCircle2,
   ExternalLink,
   GitCommit,
   GitBranch,
@@ -21,7 +17,7 @@ import {
   Copy,
   Check
 } from "lucide-react";
-import { Github, Twitter, Linkedin, Instagram } from "../components/ui/Icons";
+import { Github, Linkedin, Instagram } from "../components/ui/Icons";
 import { query, collection, where, getCountFromServer } from "firebase/firestore";
 import { db } from "../lib/firebase";
 import { useAuth } from "../context/AuthContext";

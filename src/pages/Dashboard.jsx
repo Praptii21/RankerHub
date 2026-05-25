@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from "react";
 import LottiePlayer from "../components/ui/LottiePlayer";
-import { Award, Zap, Code, ShieldCheck, Flame, ArrowUpRight } from "lucide-react";
+import { Award, ShieldCheck } from "lucide-react";
 import { query, collection, where, getCountFromServer } from "firebase/firestore";
 import { db } from "../lib/firebase";
 import { useAuth } from "../context/AuthContext";
@@ -11,7 +11,7 @@ import StatsCards from "../components/dashboard/StatsCards";
 import StreakCard from "../components/dashboard/StreakCard";
 import RankPreview from "../components/dashboard/RankPreview";
 import ActivityFeed from "../components/dashboard/ActivityFeed";
-import GradientButton from "../components/ui/GradientButton";
+
 
 // Generate dummy data for GitHub contribution graph mockup
 const heatmapColors = [

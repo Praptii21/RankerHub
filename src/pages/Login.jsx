@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { useNavigate, Link } from "react-router-dom";
+import { Link } from "react-router-dom";
 import { motion } from "framer-motion";
 import { ShieldCheck, ArrowRight, AlertCircle, Sparkles } from "lucide-react";
 import { Github } from "../components/ui/Icons";
@@ -11,7 +11,7 @@ export const Login = () => {
   const { login } = useAuth();
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState("");
-  const navigate = useNavigate();
+
 
   // Extract referral parameters from URL (e.g. ?ref=NEWCODE or #/login?ref=NEWCODE)
   useEffect(() => {
