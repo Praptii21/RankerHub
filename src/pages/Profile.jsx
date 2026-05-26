@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from "react";
+import Toast from "../components/ui/Toast";
 import LottiePlayer from "../components/ui/LottiePlayer";
 import {
   MapPin,
@@ -26,7 +27,7 @@ export const Profile = () => {
   const { userData, user, setUserData } = useAuth();
   const [copied, setCopied] = useState(false);
   const [rank, setRank] = useState("Loading...");
-  
+  const [toast, setToast] = useState(null);
   // Social links edit states
   const [editingSocial, setEditingSocial] = useState(null);
   const [editValue, setEditValue] = useState("");
@@ -138,10 +139,10 @@ export const Profile = () => {
       setEditingSocial(null);
       setEditValue("");
       
-      alert(`${type.charAt(0).toUpperCase() + type.slice(1)} updated successfully!`);
+      setToast({ message: `${type.charAt(0).toUpperCase() + type.slice(1)} updated successfully!`, type: "success" });
     } catch (err) {
       console.error("Error updating social link:", err);
-      alert(`Failed to update ${type}. Please try again.`);
+      setToast({ message: `Failed to update ${type}. Please try again.`, type: "error" });
     } finally {
       setUpdating(false);
     }
