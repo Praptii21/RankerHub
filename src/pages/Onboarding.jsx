@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useMemo, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import {
@@ -35,7 +35,10 @@ export const Onboarding = () => {
   const navigate = useNavigate();
 
   // Fields state
+  const suggestedName = userData?.name || user?.displayName || "";
   const [name, setName] = useState("");
+  const [hasEditedName, setHasEditedName] = useState(false);
+  const displayName = hasEditedName ? name : suggestedName;
   const [gender, setGender] = useState("");
   const [dob, setDob] = useState("");
   const [city] = useState("Mumbai"); // Strictly Locked
@@ -44,9 +47,18 @@ export const Onboarding = () => {
   const [collegeSearch, setCollegeSearch] = useState("");
   const [selectedCollege, setSelectedCollege] = useState("");
   const [showCollegeDropdown, setShowCollegeDropdown] = useState(false);
-  const [filteredColleges, setFilteredColleges] = useState(collegesList);
+  const filteredColleges = useMemo(() => {
+    if (collegeSearch.trim() === "") {
+      return collegesList;
+    }
 
-  const [referralCode, setReferralCode] = useState("");
+    const searchLower = collegeSearch.toLowerCase();
+    return collegesList.filter((col) => col.toLowerCase().includes(searchLower));
+  }, [collegeSearch]);
+
+  const [referralCode, setReferralCode] = useState(() =>
+    typeof sessionStorage === "undefined" ? "" : sessionStorage.getItem("referred_by_code") || ""
+  );
   const [linkedinUrl, setLinkedinUrl] = useState("");
   const [instagramHandle, setInstagramHandle] = useState("");
   
@@ -57,40 +69,13 @@ export const Onboarding = () => {
 
   const dropdownRef = useRef(null);
 
-  // Prefill name from GitHub when session is loaded
-  useEffect(() => {
-    if (userData && userData.name) {
-      // eslint-disable-next-line react-hooks/set-state-in-effect
-      setName(userData.name);
-    } else if (user && user.displayName) {
-      setName(user.displayName);
-    }
-  }, [user, userData]);
-
   // Prefill referral code from session storage (URL parse cache)
   useEffect(() => {
     const savedRef = sessionStorage.getItem("referred_by_code");
     if (savedRef) {
-      // eslint-disable-next-line react-hooks/set-state-in-effect
-      setReferralCode(savedRef);
-      // Clean up after prefilling once
       sessionStorage.removeItem("referred_by_code");
     }
   }, []);
-
-  // Handle college typing search filter
-  useEffect(() => {
-    if (collegeSearch.trim() === "") {
-      // eslint-disable-next-line react-hooks/set-state-in-effect
-      setFilteredColleges(collegesList);
-    } else {
-      const searchLower = collegeSearch.toLowerCase();
-      const filtered = collegesList.filter((col) =>
-        col.toLowerCase().includes(searchLower)
-      );
-      setFilteredColleges(filtered);
-    }
-  }, [collegeSearch]);
 
   // Click outside to close dropdown
   useEffect(() => {
@@ -127,7 +112,9 @@ export const Onboarding = () => {
     setSuccessMsg("");
 
     // 1. Validations
-    if (!name.trim()) {
+    const finalName = displayName.trim();
+
+    if (!finalName) {
       setError("Please enter your full name.");
       setIsLoading(false);
       return;
@@ -222,7 +209,7 @@ export const Onboarding = () => {
           uid: activeUid,
           githubUsername,
           githubId: userData?.githubId || user.providerData[0]?.uid || null,
-          name,
+          name: finalName,
           email: user.email || "",
           avatar: userData?.avatar || user.photoURL || "",
           gender,
@@ -385,8 +372,11 @@ export const Onboarding = () => {
                 <input
                   type="text"
                   placeholder="Enter your name"
-                  value={name}
-                  onChange={(e) => setName(e.target.value)}
+                  value={displayName}
+                  onChange={(e) => {
+                    setHasEditedName(true);
+                    setName(e.target.value);
+                  }}
                   className="w-full px-4 py-3 text-sm rounded-xl border border-slate-200 dark:border-slate-800 bg-white/40 dark:bg-slate-950/20 focus:outline-none focus:ring-2 focus:ring-violet-500/20 focus:border-violet-500 dark:text-white transition-all placeholder:text-slate-400"
                 />
               </div>
