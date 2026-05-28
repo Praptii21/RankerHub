@@ -226,9 +226,12 @@ export const Onboarding = () => {
           createdAt: new Date().toISOString(),
           githubStats: {
             commits: ghStats.commits,
+            prs: ghStats.prs,
+            reviews: ghStats.reviews,
             repos: ghStats.publicRepos,
             stars: ghStats.stars,
-            followers: ghStats.followers
+            followers: ghStats.followers,
+            primaryLanguage: ghStats.primaryLanguage
           },
           points: {
             gitRankPoints: ghStats.gitRankPoints,

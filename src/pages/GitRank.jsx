@@ -1,122 +1,746 @@
-import React, { useState, useMemo } from "react";
-import { Search, Filter, Star } from "lucide-react";
-import { Github } from "../components/ui/Icons";
-
-import { leaderboardData } from "../data/leaderboard";
+import React, { useState, useEffect, useMemo } from "react";
+import { Search, Filter, Star, Trophy, RefreshCw, GitCommit, Calendar, BookOpen, AlertCircle, CheckCircle2 } from "lucide-react";
+import { collection, query, where, onSnapshot, doc, updateDoc } from "firebase/firestore";
+import { db } from "../lib/firebase";
+import { useAuth } from "../context/AuthContext";
 import Card from "../components/ui/Card";
 import SectionHeader from "../components/ui/SectionHeader";
-import ComingSoonCard from "../components/ui/ComingSoonCard";
+import GradientButton from "../components/ui/GradientButton";
+import axios from "axios";
 
 export const GitRank = () => {
+  const { user, userData, fetchGitHubStats, login } = useAuth();
   const [searchTerm, setSearchTerm] = useState("");
   const [selectedLanguage, setSelectedLanguage] = useState("All");
 
+  // Real-time leaderboard state
+  const [usersList, setUsersList] = useState([]);
+  const [loadingUsers, setLoadingUsers] = useState(true);
+
+  // Syncing state
+  const [isSyncing, setIsSyncing] = useState(false);
+  const [syncSuccess, setSyncSuccess] = useState("");
+  const [syncError, setSyncError] = useState("");
+
+  // Charts data state
+  const [events, setEvents] = useState([]);
+  const [repos, setRepos] = useState([]);
+  const [loadingCharts, setLoadingCharts] = useState(true);
+
   const languages = ["All", "TypeScript", "Rust", "Go", "Python", "Kotlin", "Ruby", "JavaScript"];
 
-  // Filter leaderboard items based on user inputs
+  // 1. Real-time Leaderboard Listener
+  useEffect(() => {
+    // Only listen if user is logged in (due to read rules requiring authentication)
+    if (!user) {
+      const timer = setTimeout(() => {
+        setLoadingUsers(false);
+      }, 0);
+      return () => clearTimeout(timer);
+    }
+
+    const q = query(
+      collection(db, "users"),
+      where("onboardingStatus", "==", "complete")
+    );
+
+    const unsubscribe = onSnapshot(
+      q,
+      (snapshot) => {
+        const users = [];
+        snapshot.forEach((doc) => {
+          users.push(doc.data());
+        });
+
+        // Sort by totalPoints descending
+        users.sort((a, b) => (b.points?.totalPoints || 0) - (a.points?.totalPoints || 0));
+
+        // Assign ranks
+        const ranked = users.map((u, i) => ({
+          ...u,
+          rank: i + 1
+        }));
+
+        setUsersList(ranked);
+        setLoadingUsers(false);
+      },
+      (error) => {
+        console.error("Leaderboard subscription error:", error);
+        setLoadingUsers(false);
+      }
+    );
+
+    return () => unsubscribe();
+  }, [user]);
+
+  // 2. Fetch GitHub Events/Repos for Charts
+  useEffect(() => {
+    if (!userData?.githubUsername) return;
+
+    const fetchAnalytics = async () => {
+      setLoadingCharts(true);
+      const token = sessionStorage.getItem(`gh_token_${user?.uid}`);
+      const headers = token ? { Authorization: `token ${token}` } : {};
+
+      try {
+        const eventsRes = await axios.get(
+          `https://api.github.com/users/${userData.githubUsername}/events`,
+          { headers }
+        );
+        setEvents(eventsRes.data || []);
+      } catch (err) {
+        console.warn("Failed to fetch events for charts:", err);
+      }
+
+      try {
+        const reposRes = await axios.get(
+          `https://api.github.com/users/${userData.githubUsername}/repos?per_page=100&type=owner`,
+          { headers }
+        );
+        setRepos(reposRes.data || []);
+      } catch (err) {
+        console.warn("Failed to fetch repos for charts:", err);
+      }
+      setLoadingCharts(false);
+    };
+
+    fetchAnalytics();
+  }, [userData, user]);
+
+  // 3. Sync GitHub Data Handler
+  const handleSync = async () => {
+    if (!user || !userData) return;
+    setIsSyncing(true);
+    setSyncSuccess("");
+    setSyncError("");
+
+    try {
+      const ghStats = await fetchGitHubStats(user.uid, userData.githubUsername);
+      const userRef = doc(db, "users", user.uid);
+
+      const currentReferralPoints = userData.points?.referralPoints || 0;
+      const currentCodingVersePoints = userData.points?.codingVersePoints || 0;
+      const currentStreakPoints = userData.points?.streakPoints || 0;
+
+      const newGitRankPoints = ghStats.gitRankPoints;
+      const newTotalPoints = newGitRankPoints + currentReferralPoints + currentCodingVersePoints + currentStreakPoints;
+
+      await updateDoc(userRef, {
+        "githubStats.commits": ghStats.commits,
+        "githubStats.prs": ghStats.prs,
+        "githubStats.reviews": ghStats.reviews,
+        "githubStats.repos": ghStats.publicRepos,
+        "githubStats.stars": ghStats.stars,
+        "githubStats.followers": ghStats.followers,
+        "githubStats.primaryLanguage": ghStats.primaryLanguage,
+        "points.gitRankPoints": newGitRankPoints,
+        "points.totalPoints": newTotalPoints,
+        "lastSync": new Date().toISOString()
+      });
+
+      setSyncSuccess("GitHub statistics updated in real time!");
+      setTimeout(() => setSyncSuccess(""), 4000);
+    } catch (err) {
+      console.error("GitHub Sync error:", err);
+      setSyncError("Failed to update: " + (err.message || "Unknown error"));
+      setTimeout(() => setSyncError(""), 4000);
+    } finally {
+      setIsSyncing(false);
+    }
+  };
+
+  // Filter leaderboard lists
   const filteredData = useMemo(() => {
-    return leaderboardData.filter((user) => {
+    return usersList.filter((user) => {
+      const name = user.name || "";
+      const username = user.githubUsername || "";
       const matchesSearch =
-        user.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        user.username.toLowerCase().includes(searchTerm.toLowerCase());
-      
-      const matchesLang = selectedLanguage === "All" || user.language === selectedLanguage;
-      
+        name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        username.toLowerCase().includes(searchTerm.toLowerCase());
+
+      const lang = user.githubStats?.primaryLanguage || "JavaScript";
+      const matchesLang = selectedLanguage === "All" || lang === selectedLanguage;
+
       return matchesSearch && matchesLang;
     });
-  }, [searchTerm, selectedLanguage]);
+  }, [usersList, searchTerm, selectedLanguage]);
 
-  // Highlight top contributors cards (Top 3)
+  // Grab Top 3 Contributors
   const topContributors = useMemo(() => {
-    return leaderboardData.slice(0, 3);
-  }, []);
+    return usersList.slice(0, 3);
+  }, [usersList]);
+
+  // Chart Parsing 1: Weekly Activity
+  const weeklyActivityData = useMemo(() => {
+    const weeks = Array.from({ length: 8 }, (_, idx) => {
+      const start = new Date();
+      start.setDate(start.getDate() - (idx + 1) * 7);
+      const end = new Date();
+      end.setDate(end.getDate() - idx * 7);
+      const label = start.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+      return { start, end, commits: 0, prs: 0, reviews: 0, label };
+    }).reverse();
+
+    if (!events.length) {
+      // Mock pattern if events are empty so user sees how it looks
+      return [
+        { label: "Wk 1", commits: 2, prs: 0, reviews: 0 },
+        { label: "Wk 2", commits: 6, prs: 1, reviews: 0 },
+        { label: "Wk 3", commits: 4, prs: 0, reviews: 1 },
+        { label: "Wk 4", commits: 9, prs: 2, reviews: 0 },
+        { label: "Wk 5", commits: 14, prs: 3, reviews: 1 },
+        { label: "Wk 6", commits: 11, prs: 1, reviews: 2 },
+        { label: "Wk 7", commits: 7, prs: 4, reviews: 1 },
+        { label: "Wk 8", commits: 18, prs: 5, reviews: 3 }
+      ];
+    }
+
+    events.forEach((event) => {
+      const eventDate = new Date(event.created_at);
+      const weekIdx = weeks.findIndex((w) => eventDate >= w.start && eventDate < w.end);
+      if (weekIdx !== -1) {
+        if (event.type === "PushEvent") {
+          weeks[weekIdx].commits += event.payload?.size || event.payload?.commits?.length || 1;
+        } else if (event.type === "PullRequestEvent" && event.payload?.action === "opened") {
+          weeks[weekIdx].prs += 1;
+        } else if (event.type === "PullRequestReviewEvent") {
+          weeks[weekIdx].reviews += 1;
+        }
+      }
+    });
+
+    return weeks;
+  }, [events]);
+
+  // Chart Parsing 2: Languages Frequency
+  const languageChartData = useMemo(() => {
+    if (!repos.length) {
+      return [
+        { name: "TypeScript", count: 8, percent: 50, color: "#3178c6" },
+        { name: "JavaScript", count: 5, percent: 31, color: "#f1e05a" },
+        { name: "Python", count: 3, percent: 19, color: "#3572A5" }
+      ];
+    }
+    const counts = {};
+    repos.forEach((r) => {
+      if (r.language) {
+        counts[r.language] = (counts[r.language] || 0) + 1;
+      }
+    });
+    const total = Object.values(counts).reduce((a, b) => a + b, 0) || 1;
+    return Object.keys(counts)
+      .map((name) => ({
+        name,
+        count: counts[name],
+        percent: Math.round((counts[name] / total) * 100),
+        color:
+          name === "TypeScript"
+            ? "#3178c6"
+            : name === "JavaScript"
+            ? "#f1e05a"
+            : name === "Python"
+            ? "#3572A5"
+            : name === "Go"
+            ? "#00ADD8"
+            : name === "Rust"
+            ? "#dea584"
+            : name === "Kotlin"
+            ? "#A97BFF"
+            : "#a855f7"
+      }))
+      .sort((a, b) => b.count - a.count)
+      .slice(0, 5);
+  }, [repos]);
+
+  // Chart Parsing 3: Repository Contributions
+  const repositoryContributionData = useMemo(() => {
+    if (!events.length) {
+      return [
+        { name: "portfolio-website", commits: 15, percent: 45 },
+        { name: "react-dashboard", commits: 10, percent: 30 },
+        { name: "express-api-gateway", commits: 8, percent: 25 }
+      ];
+    }
+    const counts = {};
+    events.forEach((e) => {
+      if (e.type === "PushEvent" && e.repo?.name) {
+        const nameOnly = e.repo.name.split("/")[1] || e.repo.name;
+        counts[nameOnly] = (counts[nameOnly] || 0) + (e.payload?.size || 1);
+      }
+    });
+    const total = Object.values(counts).reduce((a, b) => a + b, 0) || 1;
+    return Object.keys(counts)
+      .map((name) => ({
+        name,
+        commits: counts[name],
+        percent: Math.round((counts[name] / total) * 100)
+      }))
+      .sort((a, b) => b.commits - a.commits)
+      .slice(0, 5);
+  }, [events]);
+
+  // SVG Line Chart coordinates calculation
+  const maxVal = Math.max(
+    ...weeklyActivityData.map((d) => d.commits),
+    ...weeklyActivityData.map((d) => d.prs),
+    ...weeklyActivityData.map((d) => d.reviews),
+    4
+  );
+  const chartWidth = 500;
+  const chartHeight = 160;
+  const paddingX = 35;
+  const paddingY = 20;
+
+  const pointsCommits = weeklyActivityData.map((d, i) => {
+    const x = paddingX + (i / (weeklyActivityData.length - 1)) * (chartWidth - 2 * paddingX);
+    const y = chartHeight - paddingY - (d.commits / maxVal) * (chartHeight - 2 * paddingY);
+    return { x, y };
+  });
+
+  const pointsPrs = weeklyActivityData.map((d, i) => {
+    const x = paddingX + (i / (weeklyActivityData.length - 1)) * (chartWidth - 2 * paddingX);
+    const y = chartHeight - paddingY - (d.prs / maxVal) * (chartHeight - 2 * paddingY);
+    return { x, y };
+  });
+
+  const pointsReviews = weeklyActivityData.map((d, i) => {
+    const x = paddingX + (i / (weeklyActivityData.length - 1)) * (chartWidth - 2 * paddingX);
+    const y = chartHeight - paddingY - (d.reviews / maxVal) * (chartHeight - 2 * paddingY);
+    return { x, y };
+  });
+
+  const generateSvgPath = (points) => {
+    if (!points.length) return "";
+    return `M ${points[0].x} ${points[0].y} ` + points.slice(1).map((p) => `L ${p.x} ${p.y}`).join(" ");
+  };
+
+  const pathCommits = generateSvgPath(pointsCommits);
+  const areaCommits = pointsCommits.length
+    ? `${pathCommits} L ${pointsCommits[pointsCommits.length - 1].x} ${chartHeight - paddingY} L ${pointsCommits[0].x} ${chartHeight - paddingY} Z`
+    : "";
+
+  const pathPrs = generateSvgPath(pointsPrs);
+  const areaPrs = pointsPrs.length
+    ? `${pathPrs} L ${pointsPrs[pointsPrs.length - 1].x} ${chartHeight - paddingY} L ${pointsPrs[0].x} ${chartHeight - paddingY} Z`
+    : "";
+
+  const pathReviews = generateSvgPath(pointsReviews);
+  const areaReviews = pointsReviews.length
+    ? `${pathReviews} L ${pointsReviews[pointsReviews.length - 1].x} ${chartHeight - paddingY} L ${pointsReviews[0].x} ${chartHeight - paddingY} Z`
+    : "";
 
   return (
     <div className="space-y-8">
       {/* Page Header */}
       <SectionHeader
-        title="GitRank Leaderboard"
-        subtitle="Global ratings and rankings based on public GitHub repository logs."
+        title="GitRank Rating Engine"
+        subtitle="Real-time developers rankings and active contribution audits."
         badge="Engine Active"
       />
 
-      <ComingSoonCard
-        title="GitHub Ranking Engine - Coming Soon"
-        description="Our background sync processes are in staging. Real-time GitHub authentication and pull request auditing will be available in the next release. Currently displaying simulated developer data."
-        icon={Github}
-        features={[
-          "OAuth GitHub integration",
-          "Public/Private repo PR analytics",
-          "Lines of code & review weight audits",
-          "Weekly community tournament brackets"
-        ]}
-        estimatedArrival="Q3 2026"
-        showHourglass={true}
-      />
+      {/* 1. Authenticated User's Real-time Panel */}
+      {user ? (
+        <div className="space-y-6">
+          <Card className="p-6 relative overflow-hidden bg-gradient-to-br from-violet-600/5 via-transparent to-blue-500/5 border-slate-200/60 dark:border-slate-800/60">
+            <div className="flex flex-col md:flex-row items-center justify-between gap-6">
+              {/* Profile details */}
+              <div className="flex items-center gap-4">
+                <div className="w-16 h-16 rounded-2xl overflow-hidden ring-4 ring-violet-500/20 shadow-lg">
+                  <img
+                    src={userData?.avatar || user.photoURL}
+                    alt={userData?.name}
+                    className="w-full h-full object-cover"
+                  />
+                </div>
+                <div>
+                  <h3 className="text-xl font-black text-slate-900 dark:text-white my-0">
+                    {userData?.name || "Developer"}
+                  </h3>
+                  <div className="flex items-center gap-2 mt-1">
+                    <span className="text-xs font-semibold text-slate-400">
+                      @{userData?.githubUsername || "github"}
+                    </span>
+                    <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                    <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">
+                      Real-time Synced
+                    </span>
+                  </div>
+                </div>
+              </div>
 
-      {/* Top 3 Featured Cards Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-        {topContributors.map((user, idx) => (
-          <Card
-            key={user.rank}
-            className={`
-              relative overflow-hidden flex flex-col items-center justify-between text-center p-6 border
-              ${idx === 0 
-                ? "bg-gradient-to-b from-amber-500/10 via-slate-50/0 to-slate-50/0 dark:from-amber-500/5 dark:via-slate-900/0 dark:to-slate-900/0 border-amber-500/30" 
-                : "border-slate-200/50 dark:border-slate-800/50"}
-            `}
-          >
-            {/* Crown/Medal Overlay for First place */}
-            {idx === 0 && (
-              <div className="absolute top-4 right-4 flex items-center justify-center p-1.5 rounded-full bg-amber-500 text-white shadow-md">
-                <Star className="w-4 h-4 fill-white" />
+              {/* Stats Panel */}
+              <div className="flex flex-wrap items-center justify-center md:justify-end gap-6 text-center">
+                <div className="px-4 py-2 bg-slate-50 dark:bg-slate-950/40 rounded-xl border border-slate-200/30 dark:border-slate-800/30 min-w-[90px]">
+                  <span className="block font-black text-blue-500 text-lg leading-none">
+                    {userData?.githubStats?.commits || 0}
+                  </span>
+                  <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider mt-1 block">
+                    Commits
+                  </span>
+                </div>
+                <div className="px-4 py-2 bg-slate-50 dark:bg-slate-950/40 rounded-xl border border-slate-200/30 dark:border-slate-800/30 min-w-[90px]">
+                  <span className="block font-black text-violet-500 text-lg leading-none">
+                    {userData?.githubStats?.prs || 0}
+                  </span>
+                  <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider mt-1 block">
+                    PRs
+                  </span>
+                </div>
+                <div className="px-4 py-2 bg-slate-50 dark:bg-slate-950/40 rounded-xl border border-slate-200/30 dark:border-slate-800/30 min-w-[90px]">
+                  <span className="block font-black text-pink-500 text-lg leading-none">
+                    {userData?.githubStats?.reviews || 0}
+                  </span>
+                  <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider mt-1 block">
+                    Reviews
+                  </span>
+                </div>
+                <div className="px-4 py-2 bg-slate-50 dark:bg-slate-950/40 rounded-xl border border-slate-200/30 dark:border-slate-800/30 min-w-[90px]">
+                  <span className="block font-black text-emerald-500 text-lg leading-none">
+                    {userData?.points?.gitRankPoints || 0}
+                  </span>
+                  <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider mt-1 block">
+                    GitPoints
+                  </span>
+                </div>
+              </div>
+
+              {/* Sync Actions */}
+              <div className="w-full md:w-auto flex flex-col items-center md:items-end gap-2">
+                <GradientButton
+                  onClick={handleSync}
+                  disabled={isSyncing}
+                  className="w-full md:w-auto px-5 py-2.5 text-xs font-bold flex items-center justify-center gap-2 shadow-lg shadow-violet-500/10"
+                >
+                  <RefreshCw className={`w-3.5 h-3.5 ${isSyncing ? "animate-spin" : ""}`} />
+                  {isSyncing ? "Syncing GitHub..." : "Sync GitHub Data"}
+                </GradientButton>
+
+                {userData?.lastSync && (
+                  <span className="text-[10px] text-slate-400 font-medium">
+                    Last sync: {new Date(userData.lastSync).toLocaleString()}
+                  </span>
+                )}
+              </div>
+            </div>
+
+            {/* Sync Notifications */}
+            {syncSuccess && (
+              <div className="mt-4 flex items-center gap-2 text-xs font-bold text-emerald-600 dark:text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-3 py-2 rounded-xl">
+                <CheckCircle2 className="w-4 h-4" />
+                <span>{syncSuccess}</span>
               </div>
             )}
-
-            <div className="flex flex-col items-center space-y-3">
-              <span className="text-xs font-bold text-slate-400 uppercase">
-                Contributor Rank #{user.rank}
-              </span>
-              
-              {/* Profile Image */}
-              <div className="w-16 h-16 rounded-2xl overflow-hidden ring-4 ring-violet-500/10">
-                <img src={user.avatar} alt={user.name} className="w-full h-full object-cover" />
+            {syncError && (
+              <div className="mt-4 flex items-center gap-2 text-xs font-bold text-red-600 dark:text-red-400 bg-red-500/10 border border-red-500/20 px-3 py-2 rounded-xl">
+                <AlertCircle className="w-4 h-4" />
+                <span>{syncError}</span>
               </div>
-
-              <div>
-                <h4 className="text-base font-extrabold text-slate-950 dark:text-white leading-tight">
-                  {user.name}
-                </h4>
-                <span className="text-xs font-semibold text-slate-400 dark:text-slate-500">
-                  @{user.username}
-                </span>
-              </div>
-              
-              <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-slate-100 dark:bg-slate-800 text-slate-500 border border-slate-300/20 dark:border-slate-700/20">
-                {user.language}
-              </span>
-            </div>
-
-            <div className="mt-4 pt-4 border-t border-slate-100 dark:border-slate-800/80 w-full flex items-center justify-around text-xs">
-              <div>
-                <span className="block font-black text-slate-900 dark:text-white leading-none">
-                  {user.contributions}
-                </span>
-                <span className="text-[10px] text-slate-400 font-bold uppercase mt-1 block">Commits</span>
-              </div>
-              <div className="h-6 w-[1px] bg-slate-200 dark:bg-slate-800" />
-              <div>
-                <span className="block font-black text-violet-600 dark:text-violet-400 leading-none">
-                  {user.points.toLocaleString()}
-                </span>
-                <span className="text-[10px] text-slate-400 font-bold uppercase mt-1 block">Points</span>
-              </div>
-            </div>
+            )}
           </Card>
-        ))}
-      </div>
 
-      {/* Leaderboard Table / Search & Filters Controls */}
+          {/* User GitHub Graphs & Charts */}
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            {/* SVG Weekly activity trend */}
+            <Card className="p-5 flex flex-col justify-between">
+              <div>
+                <h4 className="font-extrabold text-slate-900 dark:text-white mt-0 mb-1 flex items-center gap-1.5">
+                  <Calendar className="w-4.5 h-4.5 text-violet-500" /> Recent Activity Trend
+                </h4>
+                <p className="text-[11px] text-slate-400 font-semibold mb-4">
+                  Contributions over the last 8 weeks.
+                </p>
+              </div>
+
+              {loadingCharts ? (
+                <div className="h-[160px] flex items-center justify-center">
+                  <div className="w-6 h-6 border-2 border-violet-500 border-t-transparent rounded-full animate-spin" />
+                </div>
+              ) : (
+                <div className="w-full flex items-center justify-center">
+                  <svg viewBox={`0 0 ${chartWidth} ${chartHeight}`} className="w-full h-auto overflow-visible">
+                    {/* Gridlines */}
+                    {[0, 0.25, 0.5, 0.75, 1].map((r, i) => {
+                      const y = chartHeight - paddingY - r * (chartHeight - 2 * paddingY);
+                      return (
+                        <line
+                          key={i}
+                          x1={paddingX}
+                          y1={y}
+                          x2={chartWidth - paddingX}
+                          y2={y}
+                          className="stroke-slate-100 dark:stroke-slate-800/40"
+                          strokeDasharray="4 4"
+                        />
+                      );
+                    })}
+
+                    {/* Commits Area/Line */}
+                    {areaCommits && (
+                      <path d={areaCommits} className="fill-blue-500/5 dark:fill-blue-500/5" />
+                    )}
+                    {pathCommits && (
+                      <path
+                        d={pathCommits}
+                        fill="none"
+                        className="stroke-blue-500"
+                        strokeWidth="2.5"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                      />
+                    )}
+
+                    {/* PR Area/Line */}
+                    {areaPrs && (
+                      <path d={areaPrs} className="fill-violet-500/5 dark:fill-violet-500/5" />
+                    )}
+                    {pathPrs && (
+                      <path
+                        d={pathPrs}
+                        fill="none"
+                        className="stroke-violet-500"
+                        strokeWidth="2.5"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                      />
+                    )}
+
+                    {/* Reviews Area/Line */}
+                    {areaReviews && (
+                      <path d={areaReviews} className="fill-pink-500/5 dark:fill-pink-500/5" />
+                    )}
+                    {pathReviews && (
+                      <path
+                        d={pathReviews}
+                        fill="none"
+                        className="stroke-pink-500"
+                        strokeWidth="2.5"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                      />
+                    )}
+
+                    {/* Interaction Dots */}
+                    {pointsCommits.map((p, i) => (
+                      <circle
+                        key={`c-${i}`}
+                        cx={p.x}
+                        cy={p.y}
+                        r="3.5"
+                        className="fill-white stroke-blue-500"
+                        strokeWidth="2"
+                      />
+                    ))}
+                    {pointsPrs.map((p, i) => (
+                      <circle
+                        key={`p-${i}`}
+                        cx={p.x}
+                        cy={p.y}
+                        r="3.5"
+                        className="fill-white stroke-violet-500"
+                        strokeWidth="2"
+                      />
+                    ))}
+
+                    {/* X-axis Labels */}
+                    {weeklyActivityData.map((d, i) => {
+                      const x = paddingX + (i / (weeklyActivityData.length - 1)) * (chartWidth - 2 * paddingX);
+                      return (
+                        <text
+                          key={i}
+                          x={x}
+                          y={chartHeight - 4}
+                          textAnchor="middle"
+                          className="fill-slate-400 font-bold text-[9px]"
+                        >
+                          {d.label}
+                        </text>
+                      );
+                    })}
+                  </svg>
+                </div>
+              )}
+
+              {/* Chart Legend */}
+              <div className="flex items-center justify-center gap-4 text-[10px] font-bold text-slate-400 mt-2">
+                <span className="flex items-center gap-1">
+                  <span className="w-2 h-2 rounded-full bg-blue-500" /> Commits
+                </span>
+                <span className="flex items-center gap-1">
+                  <span className="w-2 h-2 rounded-full bg-violet-500" /> PRs
+                </span>
+                <span className="flex items-center gap-1">
+                  <span className="w-2 h-2 rounded-full bg-pink-500" /> Reviews
+                </span>
+              </div>
+            </Card>
+
+            {/* Language Breakdown */}
+            <Card className="p-5 flex flex-col justify-between">
+              <div>
+                <h4 className="font-extrabold text-slate-900 dark:text-white mt-0 mb-1 flex items-center gap-1.5">
+                  <BookOpen className="w-4.5 h-4.5 text-violet-500" /> Languages Distribution
+                </h4>
+                <p className="text-[11px] text-slate-400 font-semibold mb-4">
+                  Programming languages across your repositories.
+                </p>
+              </div>
+
+              {loadingCharts ? (
+                <div className="h-[160px] flex items-center justify-center">
+                  <div className="w-6 h-6 border-2 border-violet-500 border-t-transparent rounded-full animate-spin" />
+                </div>
+              ) : (
+                <div className="space-y-3.5 flex-1 flex flex-col justify-center">
+                  {languageChartData.map((lang, idx) => (
+                    <div key={idx} className="space-y-1">
+                      <div className="flex items-center justify-between text-xs font-bold text-slate-500">
+                        <span className="flex items-center gap-1.5">
+                          <span
+                            className="w-2 h-2 rounded-full"
+                            style={{ backgroundColor: lang.color }}
+                          />
+                          {lang.name}
+                        </span>
+                        <span>
+                          {lang.count} repo{lang.count !== 1 ? "s" : ""} ({lang.percent}%)
+                        </span>
+                      </div>
+                      <div className="w-full h-2 bg-slate-100 dark:bg-slate-900 rounded-full overflow-hidden">
+                        <div
+                          style={{ width: `${lang.percent}%`, backgroundColor: lang.color }}
+                          className="h-full rounded-full transition-all duration-300"
+                        />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </Card>
+
+            {/* Repository breakdown */}
+            <Card className="p-5 flex flex-col justify-between">
+              <div>
+                <h4 className="font-extrabold text-slate-900 dark:text-white mt-0 mb-1 flex items-center gap-1.5">
+                  <GitCommit className="w-4.5 h-4.5 text-violet-500" /> Recent Repos Activity
+                </h4>
+                <p className="text-[11px] text-slate-400 font-semibold mb-4">
+                  Top repositories by commit activity.
+                </p>
+              </div>
+
+              {loadingCharts ? (
+                <div className="h-[160px] flex items-center justify-center">
+                  <div className="w-6 h-6 border-2 border-violet-500 border-t-transparent rounded-full animate-spin" />
+                </div>
+              ) : (
+                <div className="space-y-3.5 flex-1 flex flex-col justify-center">
+                  {repositoryContributionData.map((repo, idx) => (
+                    <div key={idx} className="space-y-1">
+                      <div className="flex items-center justify-between text-xs font-bold text-slate-500">
+                        <span className="truncate max-w-[200px]">{repo.name}</span>
+                        <span>{repo.commits} commits</span>
+                      </div>
+                      <div className="w-full h-2 bg-slate-100 dark:bg-slate-900 rounded-full overflow-hidden">
+                        <div
+                          style={{ width: `${repo.percent}%` }}
+                          className="h-full bg-violet-600 rounded-full transition-all duration-300"
+                        />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </Card>
+          </div>
+        </div>
+      ) : (
+        /* Guest User CTA */
+        <Card className="p-8 text-center max-w-xl mx-auto space-y-6 bg-gradient-to-br from-violet-600/10 via-transparent to-blue-500/10 border-violet-500/20 backdrop-blur-md">
+          <div className="w-16 h-16 rounded-2xl bg-gradient-to-tr from-violet-600 to-indigo-600 text-white flex items-center justify-center mx-auto shadow-lg shadow-violet-500/25">
+            <Trophy className="w-8 h-8" />
+          </div>
+          <div className="space-y-2">
+            <h3 className="text-2xl font-black text-slate-900 dark:text-white">
+              Connect to GitRank Engine
+            </h3>
+            <p className="text-sm text-slate-500 dark:text-slate-400 font-medium leading-relaxed">
+              Log in with GitHub to view your real-time commits, pull requests, and review analytics. Claim your points and secure a spot on the live leaderboard!
+            </p>
+          </div>
+          <GradientButton
+            onClick={login}
+            className="w-full sm:w-auto px-8 py-3 text-sm font-bold flex items-center justify-center gap-2 mx-auto"
+          >
+            Authenticate with GitHub
+          </GradientButton>
+        </Card>
+      )}
+
+      {/* 2. Top 3 Contributors Grid */}
+      {!loadingUsers && topContributors.length > 0 && (
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+          {topContributors.map((u, idx) => (
+            <Card
+              key={u.uid}
+              className={`
+                relative overflow-hidden flex flex-col items-center justify-between text-center p-6 border
+                ${
+                  idx === 0
+                    ? "bg-gradient-to-b from-amber-500/10 via-slate-50/0 to-slate-50/0 dark:from-amber-500/5 dark:via-slate-900/0 dark:to-slate-900/0 border-amber-500/30 shadow-[0_0_20px_rgba(245,158,11,0.15)]"
+                    : "border-slate-200/50 dark:border-slate-800/50"
+                }
+              `}
+            >
+              {idx === 0 && (
+                <div className="absolute top-4 right-4 flex items-center justify-center p-1.5 rounded-full bg-amber-500 text-white shadow-md">
+                  <Star className="w-4 h-4 fill-white" />
+                </div>
+              )}
+
+              <div className="flex flex-col items-center space-y-3">
+                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">
+                  Leaderboard #{u.rank}
+                </span>
+
+                <div className="w-16 h-16 rounded-2xl overflow-hidden ring-4 ring-violet-500/10 shadow-md">
+                  <img src={u.avatar} alt={u.name} className="w-full h-full object-cover" />
+                </div>
+
+                <div>
+                  <h4 className="text-base font-extrabold text-slate-900 dark:text-white leading-tight">
+                    {u.name}
+                  </h4>
+                  <span className="text-xs font-semibold text-slate-400 dark:text-slate-500">
+                    @{u.githubUsername}
+                  </span>
+                </div>
+
+                <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-slate-100 dark:bg-slate-800 text-slate-500 border border-slate-300/10 dark:border-slate-700/10">
+                  {u.githubStats?.primaryLanguage || "JavaScript"}
+                </span>
+              </div>
+
+              <div className="mt-4 pt-4 border-t border-slate-100 dark:border-slate-800/80 w-full flex items-center justify-around text-xs">
+                <div>
+                  <span className="block font-black text-slate-900 dark:text-white leading-none">
+                    {u.githubStats?.commits || 0}
+                  </span>
+                  <span className="text-[9px] text-slate-400 font-bold uppercase mt-1 block">Commits</span>
+                </div>
+                <div className="h-6 w-[1px] bg-slate-200 dark:bg-slate-800" />
+                <div>
+                  <span className="block font-black text-violet-600 dark:text-violet-400 leading-none">
+                    {u.points?.totalPoints?.toLocaleString() || 0}
+                  </span>
+                  <span className="text-[9px] text-slate-400 font-bold uppercase mt-1 block">Points</span>
+                </div>
+              </div>
+            </Card>
+          ))}
+        </div>
+      )}
+
+      {/* 3. Leaderboard Table / Search & Filters Controls */}
       <Card className="p-6">
         <div className="flex flex-col sm:flex-row items-center justify-between gap-4 pb-6 border-b border-slate-100 dark:border-slate-800">
           {/* Search */}
@@ -141,9 +765,11 @@ export const GitRank = () => {
                   onClick={() => setSelectedLanguage(lang)}
                   className={`
                     px-2.5 py-1 text-xs font-bold rounded-lg border transition-all cursor-pointer whitespace-nowrap
-                    ${selectedLanguage === lang
-                      ? "bg-violet-600 border-violet-600 text-white shadow-sm"
-                      : "border-slate-200 dark:border-slate-800 text-slate-500 hover:bg-slate-100/50 dark:hover:bg-slate-800/50"}
+                    ${
+                      selectedLanguage === lang
+                        ? "bg-violet-600 border-violet-600 text-white shadow-sm"
+                        : "border-slate-200 dark:border-slate-800 text-slate-500 hover:bg-slate-100/50 dark:hover:bg-slate-800/50"
+                    }
                   `}
                 >
                   {lang}
@@ -155,79 +781,113 @@ export const GitRank = () => {
 
         {/* Responsive Table UI */}
         <div className="overflow-x-auto">
-          <table className="w-full text-left mt-4 border-collapse">
-            <thead>
-              <tr className="border-b border-slate-100 dark:border-slate-800/80 text-[10px] font-bold text-slate-400 uppercase tracking-wider">
-                <th className="py-3 px-4">Rank</th>
-                <th className="py-3 px-4">Developer</th>
-                <th className="py-3 px-4">Focus Language</th>
-                <th className="py-3 px-4 text-center">Streak</th>
-                <th className="py-3 px-4 text-center">Contributions</th>
-                <th className="py-3 px-4 text-right">XP Points</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100 dark:divide-slate-800/40 text-sm">
-              {filteredData.length > 0 ? (
-                filteredData.map((user) => (
-                  <tr
-                    key={user.rank}
-                    className="hover:bg-slate-50/50 dark:hover:bg-slate-900/20 transition-colors group"
-                  >
-                    {/* Rank cell */}
-                    <td className="py-4 px-4 font-bold text-slate-500">
-                      #{user.rank}
-                    </td>
+          {loadingUsers ? (
+            <div className="py-20 text-center text-slate-400">
+              <div className="w-8 h-8 border-4 border-violet-500 border-t-transparent rounded-full animate-spin mx-auto mb-4" />
+              <p className="text-sm font-bold">Synchronizing Live Standings...</p>
+            </div>
+          ) : !user ? (
+            /* Locked Leaderboard state for guests */
+            <div className="py-16 text-center text-slate-400 dark:text-slate-500 max-w-sm mx-auto">
+              <Trophy className="w-10 h-10 mx-auto text-slate-300 dark:text-slate-700 mb-3" />
+              <p className="text-sm font-bold">Leaderboard Standings Locked</p>
+              <p className="text-xs mt-1 leading-relaxed">
+                Please authenticate with your GitHub account to unlock the global standings and compare your stats with other developers.
+              </p>
+              <button
+                onClick={login}
+                className="mt-4 px-4 py-2 bg-violet-600 text-white font-bold text-xs rounded-xl shadow-md hover:bg-violet-700 transition-colors"
+              >
+                Log In Now
+              </button>
+            </div>
+          ) : (
+            <table className="w-full text-left mt-4 border-collapse">
+              <thead>
+                <tr className="border-b border-slate-100 dark:border-slate-800/80 text-[10px] font-bold text-slate-400 uppercase tracking-wider">
+                  <th className="py-3 px-4">Rank</th>
+                  <th className="py-3 px-4">Developer</th>
+                  <th className="py-3 px-4">Focus Language</th>
+                  <th className="py-3 px-4 text-center">Streak</th>
+                  <th className="py-3 px-4 text-center">Commits</th>
+                  <th className="py-3 px-4 text-center">PRs</th>
+                  <th className="py-3 px-4 text-center">Reviews</th>
+                  <th className="py-3 px-4 text-right">XP Points</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100 dark:divide-slate-800/40 text-sm">
+                {filteredData.length > 0 ? (
+                  filteredData.map((u) => (
+                    <tr
+                      key={u.uid}
+                      className="hover:bg-slate-50/50 dark:hover:bg-slate-900/20 transition-colors group"
+                    >
+                      {/* Rank cell */}
+                      <td className="py-4 px-4 font-bold text-slate-500">#{u.rank}</td>
 
-                    {/* Developer profile cell */}
-                    <td className="py-4 px-4">
-                      <div className="flex items-center gap-3">
-                        <div className="w-9 h-9 rounded-lg overflow-hidden flex-shrink-0">
-                          <img src={user.avatar} alt={user.name} className="w-full h-full object-cover" />
+                      {/* Developer profile cell */}
+                      <td className="py-4 px-4">
+                        <div className="flex items-center gap-3">
+                          <div className="w-9 h-9 rounded-lg overflow-hidden flex-shrink-0">
+                            <img src={u.avatar} alt={u.name} className="w-full h-full object-cover" />
+                          </div>
+                          <div>
+                            <span className="font-extrabold text-slate-900 dark:text-white block group-hover:text-violet-500 transition-colors">
+                              {u.name}
+                            </span>
+                            <span className="text-[10px] text-slate-400 font-semibold block">
+                              @{u.githubUsername}
+                            </span>
+                          </div>
                         </div>
-                        <div>
-                          <span className="font-extrabold text-slate-900 dark:text-white block group-hover:text-violet-500 transition-colors">
-                            {user.name}
-                          </span>
-                          <span className="text-[10px] text-slate-400 font-semibold block">
-                            @{user.username}
-                          </span>
-                        </div>
-                      </div>
-                    </td>
+                      </td>
 
-                    {/* Language tag cell */}
-                    <td className="py-4 px-4">
-                      <span className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 border border-slate-200/10 dark:border-slate-800/10">
-                        {user.language}
-                      </span>
-                    </td>
+                      {/* Language tag cell */}
+                      <td className="py-4 px-4">
+                        <span className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 border border-slate-200/10 dark:border-slate-800/10">
+                          {u.githubStats?.primaryLanguage || "JavaScript"}
+                        </span>
+                      </td>
 
-                    {/* Streak flame cell */}
-                    <td className="py-4 px-4 text-center font-bold text-orange-600 dark:text-orange-400 whitespace-nowrap">
-                      🔥 {user.streak} days
-                    </td>
+                      {/* Streak flame cell */}
+                      <td className="py-4 px-4 text-center font-bold text-orange-600 dark:text-orange-400 whitespace-nowrap">
+                        🔥 {u.streak || 1} days
+                      </td>
 
-                    {/* Contributions count cell */}
-                    <td className="py-4 px-4 text-center font-bold text-slate-800 dark:text-slate-200">
-                      {user.contributions}
-                    </td>
+                      {/* Commits count cell */}
+                      <td className="py-4 px-4 text-center font-bold text-slate-800 dark:text-slate-200">
+                        {u.githubStats?.commits || 0}
+                      </td>
 
-                    {/* Points cell */}
-                    <td className="py-4 px-4 text-right font-black text-slate-900 dark:text-white">
-                      {user.points.toLocaleString()}
+                      {/* PRs count cell */}
+                      <td className="py-4 px-4 text-center font-bold text-violet-600 dark:text-violet-400">
+                        {u.githubStats?.prs || 0}
+                      </td>
+
+                      {/* Reviews count cell */}
+                      <td className="py-4 px-4 text-center font-bold text-pink-600 dark:text-pink-400">
+                        {u.githubStats?.reviews || 0}
+                      </td>
+
+                      {/* Points cell */}
+                      <td className="py-4 px-4 text-right font-black text-slate-900 dark:text-white">
+                        {u.points?.totalPoints?.toLocaleString() || 0}
+                      </td>
+                    </tr>
+                  ))
+                ) : (
+                  <tr>
+                    <td colSpan="8" className="py-12 text-center text-slate-400 dark:text-slate-500">
+                      <p className="text-sm font-bold">No results found</p>
+                      <p className="text-xs mt-1">
+                        Try adjusting your search criteria or filtering by a different language
+                      </p>
                     </td>
                   </tr>
-                ))
-              ) : (
-                <tr>
-                  <td colSpan="6" className="py-12 text-center text-slate-400 dark:text-slate-500">
-                    <p className="text-sm font-bold">No results found</p>
-                    <p className="text-xs mt-1">Try adjusting your search criteria or filtering by a different language</p>
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
+                )}
+              </tbody>
+            </table>
+          )}
         </div>
       </Card>
     </div>

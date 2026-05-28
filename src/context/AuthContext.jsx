@@ -171,13 +171,26 @@ export const AuthProvider = ({ children }) => {
       const publicRepos = profileRes.data.public_repos || 0;
       const followers = profileRes.data.followers || 0;
       
-      // 2. Fetch repos to sum up stargazers
+      // 2. Fetch repos to sum up stargazers and calculate primary language
       let stars = 0;
+      let primaryLanguage = "JavaScript";
       try {
         const reposRes = await axios.get(`https://api.github.com/users/${username}/repos?per_page=100&type=owner`, { headers });
         stars = reposRes.data.reduce((sum, r) => sum + (r.stargazers_count || 0), 0);
+        
+        // Count language frequency
+        const langCounts = {};
+        reposRes.data.forEach(r => {
+          if (r.language) {
+            langCounts[r.language] = (langCounts[r.language] || 0) + 1;
+          }
+        });
+        const sortedLangs = Object.keys(langCounts).sort((a, b) => langCounts[b] - langCounts[a]);
+        if (sortedLangs.length > 0) {
+          primaryLanguage = sortedLangs[0];
+        }
       } catch (err) {
-        console.warn("Stars retrieval warning, defaulting stars to 0:", err);
+        console.warn("Stars/Language retrieval warning, defaulting:", err);
       }
 
       // 3. Fetch total commits using Search API (authenticated allows up to 30 requests/min securely)
@@ -185,20 +198,43 @@ export const AuthProvider = ({ children }) => {
       try {
         const commitsRes = await axios.get(`https://api.github.com/search/commits?q=author:${username}`, { headers });
         commits = commitsRes.data.total_count || 0;
-      } catch {
-        // Fallback calculation in case of search commit API limits / private scope restrictions
+      } catch (err) {
+        console.warn("Commits retrieval warning, using fallback:", err);
         commits = publicRepos * 12; 
       }
 
-      // Calculate initial GitRank points securely:
-      // Commits -> +2, Repos -> +5, Stars -> +3, Followers -> +2
-      const gitRankPoints = (commits * 2) + (publicRepos * 5) + (stars * 3) + (followers * 2);
+      // 4. Fetch total pull requests
+      let prs = 0;
+      try {
+        const prsRes = await axios.get(`https://api.github.com/search/issues?q=author:${username}+type:pr`, { headers });
+        prs = prsRes.data.total_count || 0;
+      } catch (err) {
+        console.warn("PRs retrieval warning:", err);
+        prs = Math.floor(publicRepos * 1.5);
+      }
+
+      // 5. Fetch total reviews (PRs reviewed by user)
+      let reviews = 0;
+      try {
+        const reviewsRes = await axios.get(`https://api.github.com/search/issues?q=reviewed-by:${username}`, { headers });
+        reviews = reviewsRes.data.total_count || 0;
+      } catch (err) {
+        console.warn("Reviews retrieval warning:", err);
+        reviews = Math.floor(prs * 0.2); // safe fallback
+      }
+
+      // Calculate initial GitRank points securely based on real work only:
+      // Commits -> +2, PRs -> +5, Reviews -> +10
+      const gitRankPoints = (commits * 2) + (prs * 5) + (reviews * 10);
 
       return {
         commits,
+        prs,
+        reviews,
         publicRepos,
         stars,
         followers,
+        primaryLanguage,
         gitRankPoints
       };
     } catch (error) {
@@ -206,10 +242,13 @@ export const AuthProvider = ({ children }) => {
       // Clean fallback if API breaks entirely or token is invalid
       return {
         commits: 5,
+        prs: 1,
+        reviews: 0,
         publicRepos: 3,
         stars: 0,
         followers: 1,
-        gitRankPoints: 25 // safe baseline
+        primaryLanguage: "JavaScript",
+        gitRankPoints: 15 // safe baseline
       };
     }
   };
