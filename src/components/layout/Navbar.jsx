@@ -5,6 +5,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import ThemeToggle from "../ui/ThemeToggle";
 import { mockNotifications } from "../../data/activities";
 import { useAuth } from "../../context/AuthContext";
+import { searchLeaderboard } from "../../utils/searchUtils";
 
 export const Navbar = ({ toggleMobile, isMobileOpen }) => {
   const { user, userData } = useAuth();
@@ -12,6 +13,9 @@ export const Navbar = ({ toggleMobile, isMobileOpen }) => {
   const [showNotifications, setShowNotifications] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [isMobileSearchOpen, setIsMobileSearchOpen] = useState(false);
+  const [searchResults, setSearchResults] = useState([]);
+  const [showSearchResults, setShowSearchResults] = useState(false);
+  const searchRef = useRef(null);
   const greeting = (() => {
     const hours = new Date().getHours();
     if (hours < 12) return "Good morning";
@@ -21,11 +25,26 @@ export const Navbar = ({ toggleMobile, isMobileOpen }) => {
   const notificationRef = useRef(null);
   const navigate = useNavigate();
 
+  // Handle search input and show results
+  useEffect(() => {
+    if (searchQuery.trim().length > 0) {
+      const results = searchLeaderboard(searchQuery);
+      setSearchResults(results.slice(0, 5)); // Limit to 5 results
+      setShowSearchResults(true);
+    } else {
+      setSearchResults([]);
+      setShowSearchResults(false);
+    }
+  }, [searchQuery]);
+
   // Close notifications dropdown on click outside
   useEffect(() => {
     const handleClickOutside = (event) => {
       if (notificationRef.current && !notificationRef.current.contains(event.target)) {
         setShowNotifications(false);
+      }
+      if (searchRef.current && !searchRef.current.contains(event.target)) {
+        setShowSearchResults(false);
       }
     };
     document.addEventListener("mousedown", handleClickOutside);
@@ -46,9 +65,18 @@ export const Navbar = ({ toggleMobile, isMobileOpen }) => {
     e.preventDefault();
     if (searchQuery.trim()) {
       setIsMobileSearchOpen(false);
-      // Mock navigation to dashboard or search page
-      navigate(`/dashboard?search=${encodeURIComponent(searchQuery)}`);
+      setShowSearchResults(false);
+      // Navigate to GitRank page with search query
+      navigate(`/gitrank?search=${encodeURIComponent(searchQuery)}`);
+      setSearchQuery("");
     }
+  };
+
+  const handleSearchResultClick = (user) => {
+    setSearchQuery("");
+    setShowSearchResults(false);
+    // Navigate to user profile or GitRank with username filter
+    navigate(`/gitrank?search=${encodeURIComponent(user.username)}`);
   };
 
   return (
@@ -73,6 +101,61 @@ export const Navbar = ({ toggleMobile, isMobileOpen }) => {
                 autoFocus
                 className="w-full pl-10 pr-4 py-2 text-sm rounded-xl border border-slate-200/60 dark:border-slate-800/60 bg-slate-50 dark:bg-slate-900 focus:outline-none focus:ring-2 focus:ring-violet-500/20 focus:border-violet-500 dark:text-white transition-all"
               />
+              
+              {/* Mobile Search Results Dropdown */}
+              <AnimatePresence>
+                {showSearchResults && searchResults.length > 0 && (
+                  <motion.div
+                    initial={{ opacity: 0, y: 10, scale: 0.95 }}
+                    animate={{ opacity: 1, y: 0, scale: 1 }}
+                    exit={{ opacity: 0, y: 10, scale: 0.95 }}
+                    transition={{ duration: 0.15 }}
+                    className="absolute top-full mt-2 left-0 right-0 rounded-xl border border-slate-200/60 dark:border-slate-800/60 bg-white dark:bg-slate-900 shadow-lg overflow-hidden z-50"
+                  >
+                    <div className="max-h-64 overflow-y-auto divide-y divide-slate-100 dark:divide-slate-800/50">
+                      {searchResults.map((user) => (
+                        <button
+                          key={user.username}
+                          type="button"
+                          onClick={() => {
+                            handleSearchResultClick(user);
+                            setIsMobileSearchOpen(false);
+                          }}
+                          className="w-full px-4 py-3 text-left hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors flex items-center gap-3"
+                        >
+                          <img
+                            src={user.avatar}
+                            alt={user.name}
+                            className="w-8 h-8 rounded-lg object-cover"
+                          />
+                          <div className="flex-1 min-w-0">
+                            <p className="text-sm font-semibold text-slate-900 dark:text-white truncate">
+                              {user.name}
+                            </p>
+                            <p className="text-xs text-slate-500 dark:text-slate-400 truncate">
+                              @{user.username} • {user.language}
+                            </p>
+                          </div>
+                        </button>
+                      ))}
+                    </div>
+
+                    {/* View All Results */}
+                    {searchQuery.trim() && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          handleSearchSubmit(new Event('submit'));
+                          setIsMobileSearchOpen(false);
+                        }}
+                        className="w-full px-4 py-3 text-sm text-violet-600 dark:text-violet-400 hover:bg-slate-50 dark:hover:bg-slate-800 font-semibold transition-colors border-t border-slate-100 dark:border-slate-800"
+                      >
+                        View all results
+                      </button>
+                    )}
+                  </motion.div>
+                )}
+              </AnimatePresence>
             </form>
             <button
               type="button"
@@ -113,8 +196,8 @@ export const Navbar = ({ toggleMobile, isMobileOpen }) => {
       </div>
 
       {/* Middle: Search bar */}
-      <form onSubmit={handleSearchSubmit} className="max-w-xs md:max-w-md w-full mx-4 relative hidden md:block">
-        <Search className="w-4.5 h-4.5 text-slate-400 dark:text-slate-500 absolute left-3 top-1/2 -translate-y-1/2" />
+      <form onSubmit={handleSearchSubmit} className="max-w-xs md:max-w-md w-full mx-4 relative hidden md:block" ref={searchRef}>
+        <Search className="w-4.5 h-4.5 text-slate-400 dark:text-slate-500 absolute left-3 top-1/2 -translate-y-1/2 z-10" />
         <input
           type="text"
           placeholder="Search leaderboard, languages or challenges..."
@@ -122,6 +205,60 @@ export const Navbar = ({ toggleMobile, isMobileOpen }) => {
           onChange={(e) => setSearchQuery(e.target.value)}
           className="w-full pl-10 pr-4 py-2 text-sm rounded-xl border border-slate-200/60 dark:border-slate-800/60 bg-white/40 dark:bg-slate-900/40 backdrop-blur-sm focus:outline-none focus:ring-2 focus:ring-violet-500/20 focus:border-violet-500 dark:text-white transition-all placeholder:text-slate-400 dark:placeholder:text-slate-500"
         />
+        
+        {/* Search Results Dropdown */}
+        <AnimatePresence>
+          {showSearchResults && searchResults.length > 0 && (
+            <motion.div
+              initial={{ opacity: 0, y: 10, scale: 0.95 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, y: 10, scale: 0.95 }}
+              transition={{ duration: 0.15 }}
+              className="absolute top-full mt-2 w-full rounded-xl border border-slate-200/60 dark:border-slate-800/60 bg-white dark:bg-slate-900 shadow-lg overflow-hidden z-50"
+            >
+              <div className="max-h-96 overflow-y-auto divide-y divide-slate-100 dark:divide-slate-800/50">
+                {searchResults.map((user) => (
+                  <button
+                    key={user.username}
+                    type="button"
+                    onClick={() => handleSearchResultClick(user)}
+                    className="w-full px-4 py-3 text-left hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors flex items-center gap-3 group"
+                  >
+                    <img
+                      src={user.avatar}
+                      alt={user.name}
+                      className="w-8 h-8 rounded-lg object-cover"
+                    />
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-semibold text-slate-900 dark:text-white truncate">
+                        {user.name}
+                      </p>
+                      <p className="text-xs text-slate-500 dark:text-slate-400 truncate">
+                        @{user.username} • {user.language} • #{user.rank}
+                      </p>
+                    </div>
+                    <div className="text-right">
+                      <p className="text-xs font-semibold text-violet-600 dark:text-violet-400">
+                        {user.points} pts
+                      </p>
+                    </div>
+                  </button>
+                ))}
+              </div>
+
+              {/* View All Results */}
+              {searchQuery.trim() && (
+                <button
+                  type="button"
+                  onClick={handleSearchSubmit}
+                  className="w-full px-4 py-3 text-sm text-violet-600 dark:text-violet-400 hover:bg-slate-50 dark:hover:bg-slate-800 font-semibold transition-colors border-t border-slate-100 dark:border-slate-800"
+                >
+                  View all results for "{searchQuery}"
+                </button>
+              )}
+            </motion.div>
+          )}
+        </AnimatePresence>
       </form>
 
       {/* Right side: Actions, Theme, Notifications, Profile */}
