@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo } from "react";
 import { Search, Filter, Star, Trophy, RefreshCw, GitCommit, Calendar, BookOpen, AlertCircle, CheckCircle2 } from "lucide-react";
-import { collection, query, where, onSnapshot, doc, updateDoc } from "firebase/firestore";
+import { collection, query, where, doc, updateDoc, orderBy, limit, startAfter, onSnapshot, getDocs } from "firebase/firestore";
 import { db } from "../lib/firebase";
 import { useAuth } from "../context/AuthContext";
 import Card from "../components/ui/Card";
@@ -12,6 +12,11 @@ export const GitRank = () => {
   const { user, userData, fetchGitHubStats, login } = useAuth();
   const [searchTerm, setSearchTerm] = useState("");
   const [selectedLanguage, setSelectedLanguage] = useState("All");
+  
+  // Pagination States
+  const [lastVisible, setLastVisible] = useState(null); 
+  const [hasMore, setHasMore] = useState(true); 
+  const [loadingMore, setLoadingMore] = useState(false); 
 
   // Real-time leaderboard state
   const [usersList, setUsersList] = useState([]);
@@ -29,19 +34,14 @@ export const GitRank = () => {
 
   const languages = ["All", "TypeScript", "Rust", "Go", "Python", "Kotlin", "Ruby", "JavaScript"];
 
-  // 1. Real-time Leaderboard Listener
+  // 1. Real-time Leaderboard Listener (Initial 50 Users)
   useEffect(() => {
-    // Only listen if user is logged in (due to read rules requiring authentication)
-    if (!user) {
-      const timer = setTimeout(() => {
-        setLoadingUsers(false);
-      }, 0);
-      return () => clearTimeout(timer);
-    }
+    setLoadingUsers(true);
 
     const q = query(
       collection(db, "users"),
-      where("onboardingStatus", "==", "complete")
+      orderBy("points.totalPoints", "desc"),
+      limit(50)
     );
 
     const unsubscribe = onSnapshot(
@@ -52,16 +52,16 @@ export const GitRank = () => {
           users.push(doc.data());
         });
 
-        // Sort by totalPoints descending
-        users.sort((a, b) => (b.points?.totalPoints || 0) - (a.points?.totalPoints || 0));
-
-        // Assign ranks
         const ranked = users.map((u, i) => ({
           ...u,
           rank: i + 1
         }));
 
         setUsersList(ranked);
+        
+        // Setup pagination cursors
+        setLastVisible(snapshot.docs[snapshot.docs.length - 1]);
+        setHasMore(snapshot.docs.length === 50); 
         setLoadingUsers(false);
       },
       (error) => {
@@ -71,7 +71,50 @@ export const GitRank = () => {
     );
 
     return () => unsubscribe();
-  }, [user]);
+  }, []);
+
+  // Pagination Function (Fetch next 50)
+  const loadMoreUsers = async () => {
+    if (!lastVisible || !hasMore || loadingMore) return;
+
+    setLoadingMore(true);
+    try {
+      const nextQuery = query(
+        collection(db, "users"),
+        orderBy("points.totalPoints", "desc"),
+        startAfter(lastVisible),
+        limit(50)
+      );
+
+      const snapshot = await getDocs(nextQuery);
+
+      if (snapshot.empty) {
+        setHasMore(false);
+        setLoadingMore(false);
+        return;
+      }
+
+      const newUsers = [];
+      snapshot.forEach((doc) => {
+        newUsers.push(doc.data());
+      });
+
+      setUsersList((prevUsers) => {
+        const combinedUsers = [...prevUsers, ...newUsers];
+        return combinedUsers.map((u, i) => ({
+          ...u,
+          rank: i + 1
+        }));
+      });
+
+      setLastVisible(snapshot.docs[snapshot.docs.length - 1]);
+      setHasMore(snapshot.docs.length === 50);
+    } catch (error) {
+      console.error("Error fetching more users:", error);
+    } finally {
+      setLoadingMore(false);
+    }
+  };
 
   // 2. Fetch GitHub Events/Repos for Charts
   useEffect(() => {
@@ -890,6 +933,34 @@ export const GitRank = () => {
           )}
         </div>
       </Card>
+
+      {/*  PAGINATION CONTROLS ADDED HERE  */}
+      {hasMore && (
+        <div className="flex justify-center w-full mt-8 mb-4">
+          <button
+            onClick={loadMoreUsers}
+            disabled={loadingMore}
+            className="px-8 py-3 bg-gradient-to-r from-violet-600 to-indigo-600 hover:from-violet-700 hover:to-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed text-white font-semibold rounded-xl transition-all shadow-lg hover:shadow-violet-500/30 flex items-center gap-2"
+          >
+            {loadingMore ? (
+              <>
+                <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                Loading...
+              </>
+            ) : (
+              "Load More Developers"
+            )}
+          </button>
+        </div>
+      )}
+      
+      {!hasMore && usersList.length > 0 && (
+        <div className="text-center text-slate-500 dark:text-slate-400 mt-6 pb-4 text-sm font-medium">
+          You've reached the end of the leaderboard! 🏆
+        </div>
+      )}
+      {/* 🚀 👆 YAHAN TAK 👆 🚀 */}
+
     </div>
   );
 };
