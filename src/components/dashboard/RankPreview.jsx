@@ -68,7 +68,7 @@ export const RankPreview = () => {
           <p className="text-xs text-slate-400 dark:text-slate-500">Top performers this week</p>
         </div>
         <Link
-          to="/gitrank"
+          to="/dashboard/gitrank"
           className="text-xs font-bold text-violet-600 dark:text-violet-400 hover:underline flex items-center gap-1 group cursor-pointer"
         >
           View all <ChevronRight className="w-3.5 h-3.5 group-hover:translate-x-0.5 transition-transform" />
