@@ -278,4 +278,3 @@ export const RankHer = () => {
 };
 
 export default RankHer;
-//
