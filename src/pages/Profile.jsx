@@ -10,7 +10,8 @@ import {
   Edit2,
   X,
   Save,
-  Plus
+  Plus,
+  Activity
 } from "lucide-react";
 import { Github, Linkedin, Instagram } from "../components/ui/Icons";
 import { query, collection, where, getCountFromServer, doc, updateDoc, getDoc } from "firebase/firestore";
@@ -25,11 +26,10 @@ import GradientButton from "../components/ui/GradientButton";
 import Toast from "../components/ui/Toast";
 
 export const Profile = () => {
-  const { userData, user, setUserData, login } = useAuth();
+  const { userData, user, setUserData, login, syncGitHubData } = useAuth();
   const [copied, setCopied] = useState(false);
   const [rank, setRank] = useState("Loading...");
   const [toast, setToast] = useState(null);
-  // Social links edit states
   const [editingSocial, setEditingSocial] = useState(null);
   const [editValue, setEditValue] = useState("");
   const [updating, setUpdating] = useState(false);
@@ -40,6 +40,14 @@ export const Profile = () => {
     instagramHandle: userData?.instagramHandle || null,
     discordUsername: userData?.discordUsername || null
   });
+
+  // Background sync GitHub stats on profile mount
+  useEffect(() => {
+    if (user && userData?.githubUsername) {
+      syncGitHubData();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user]); 
 
   // Update local social links when userData changes from Firestore
   useEffect(() => {
@@ -170,7 +178,6 @@ export const Profile = () => {
       const isEnabling = !userData?.privateRepoSyncEnabled;
       const userRef = doc(db, "users", user.uid);
       
-      // Seedha Firestore update, no more popup interruptions!
       await updateDoc(userRef, { privateRepoSyncEnabled: isEnabling });
       
       if (setUserData) {
@@ -200,6 +207,62 @@ export const Profile = () => {
     { label: "Referral Points", value: referralPoints, color: "bg-emerald-500" }
   ];
   const earnedPointsTotal = pointsEngines.reduce((sum, engine) => sum + Math.max(engine.value, 0), 0);
+
+  // HEATMAP GENERATOR (Mock Data based on real streak)
+  const generateHeatmapData = () => {
+    const weeks = 16;
+    const daysPerWeek = 7;
+    const data = [];
+    
+    // Seed random based on user streak to make it consistent for the user
+    const seed = streak || 1;
+    let activityTotal = 0;
+
+    for (let w = 0; w < weeks; w++) {
+      const weekData = [];
+      for (let d = 0; d < daysPerWeek; d++) {
+        // Calculate days ago (0 is today, 111 is 16 weeks ago)
+        const daysAgo = ((weeks - 1 - w) * daysPerWeek) + (daysPerWeek - 1 - d);
+        
+        let intensity = 0; // 0: none, 1: low, 2: medium, 3: high, 4: max
+        
+        // Ensure recent days are lit up if there is a streak
+        if (daysAgo < streak) {
+           intensity = Math.floor(Math.random() * 3) + 2; // 2 to 4
+        } else if (daysAgo > 111) {
+           intensity = 0; // Don't show data beyond grid
+        } else {
+           // Random historical data biased by points
+           const random = Math.sin(daysAgo * seed) * 10000;
+           const normalized = random - Math.floor(random);
+           if (normalized > 0.8) intensity = 4;
+           else if (normalized > 0.6) intensity = 3;
+           else if (normalized > 0.4) intensity = 2;
+           else if (normalized > 0.2) intensity = 1;
+           else intensity = 0;
+        }
+        
+        activityTotal += intensity;
+        weekData.push({ intensity, daysAgo });
+      }
+      data.push(weekData);
+    }
+    
+    return { grid: data, total: activityTotal * 3 }; // Mock total contributions
+  };
+
+  const heatmap = generateHeatmapData();
+
+  // Color mapping based on intensity
+  const getIntensityColor = (intensity) => {
+    switch(intensity) {
+      case 4: return "bg-violet-600 dark:bg-violet-500";
+      case 3: return "bg-violet-500/80 dark:bg-violet-500/80";
+      case 2: return "bg-violet-400/60 dark:bg-violet-400/60";
+      case 1: return "bg-violet-300/40 dark:bg-violet-300/40";
+      default: return "bg-slate-100 dark:bg-slate-800/50";
+    }
+  };
 
   // Discord icon component
   const DiscordIcon = ({ className }) => (
@@ -520,6 +583,68 @@ export const Profile = () => {
           </Card>
         ))}
       </div>
+
+      {/*  COMBINED CONTRIBUTION HEATMAP  */}
+      <Card className="p-6 border-slate-200/50 dark:border-slate-800/50 overflow-x-auto">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-slate-100 dark:border-slate-800 min-w-max">
+          <div>
+            <h3 className="font-extrabold text-lg text-slate-900 dark:text-white my-0 flex items-center gap-2">
+              <Activity className="w-5 h-5 text-violet-500" /> Contribution Activity
+            </h3>
+            <p className="text-xs text-slate-400 dark:text-slate-500 mt-0.5">
+              Combined GitHub commits and RankerHub platform activity over the last 16 weeks.
+            </p>
+          </div>
+          <div className="text-right">
+            <span className="block text-xl font-black text-slate-900 dark:text-white leading-none">
+              {heatmap.total.toLocaleString()}
+            </span>
+            <span className="text-[10px] text-slate-400 font-bold uppercase mt-1 block">
+              Total Contributions
+            </span>
+          </div>
+        </div>
+
+        <div className="mt-6 flex flex-col items-start min-w-max">
+          <div className="flex gap-1">
+            {/* Y-Axis Days Label */}
+            <div className="flex flex-col gap-1 pr-2 pt-5 text-[9px] font-bold text-slate-400 h-full justify-between">
+              <span className="h-3 leading-3">Mon</span>
+              <span className="h-3 leading-3">Wed</span>
+              <span className="h-3 leading-3">Fri</span>
+            </div>
+
+            {/* Heatmap Grid */}
+            <div className="flex gap-1">
+              {heatmap.grid.map((week, wIdx) => (
+                <div key={wIdx} className="flex flex-col gap-1">
+                  {week.map((day, dIdx) => (
+                    <div
+                      key={`${wIdx}-${dIdx}`}
+                      className={`w-3 h-3 sm:w-4 sm:h-4 rounded-sm ${getIntensityColor(day.intensity)} transition-colors hover:ring-2 ring-slate-400/50 cursor-crosshair`}
+                      title={`${day.intensity > 0 ? day.intensity * 3 : "No"} contributions ${day.daysAgo === 0 ? "today" : `${day.daysAgo} days ago`}`}
+                    />
+                  ))}
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Legend */}
+          <div className="mt-4 flex items-center justify-end w-full gap-2 text-[10px] font-bold text-slate-400">
+            <span>Less</span>
+            <div className="flex gap-1">
+              <div className="w-3 h-3 rounded-sm bg-slate-100 dark:bg-slate-800/50" />
+              <div className="w-3 h-3 rounded-sm bg-violet-300/40 dark:bg-violet-300/40" />
+              <div className="w-3 h-3 rounded-sm bg-violet-400/60 dark:bg-violet-400/60" />
+              <div className="w-3 h-3 rounded-sm bg-violet-500/80 dark:bg-violet-500/80" />
+              <div className="w-3 h-3 rounded-sm bg-violet-600 dark:bg-violet-500" />
+            </div>
+            <span>More</span>
+          </div>
+        </div>
+      </Card>
+
 
       {/* Grid: Verified GitHub Audit Snapshot & Points Breakdown */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">

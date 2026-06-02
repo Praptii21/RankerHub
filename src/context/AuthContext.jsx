@@ -8,7 +8,8 @@ import {
   doc,
   getDoc,
   setDoc,
-  onSnapshot
+  onSnapshot,
+  runTransaction
 } from "firebase/firestore";
 import axios from "axios";
 import { auth, db, signInWithGitHub, signOutUser } from "../lib/firebase";
@@ -249,8 +250,59 @@ export const AuthProvider = ({ children }) => {
     }
   };
 
+  //  Background Sync Utility 
+  const syncGitHubData = async () => {
+    if (!user || !userData?.githubUsername) return;
+
+    // 5-minute cooldown to prevent GitHub API rate-limiting
+    if (userData.lastSync) {
+      const lastSyncTime = new Date(userData.lastSync).getTime();
+      const cooldownMs = 5 * 60 * 1000;
+      if (Date.now() - lastSyncTime < cooldownMs) {
+        console.log("Background GitHub sync skipped: Cooldown active.");
+        return;
+      }
+    }
+
+    try {
+      const ghStats = await fetchGitHubStats(user.uid, userData.githubUsername);
+      const userRef = doc(db, "users", user.uid);
+
+      await runTransaction(db, async (transaction) => {
+        const userDoc = await transaction.get(userRef);
+        if (!userDoc.exists()) {
+          throw new Error("User document does not exist in Firestore!");
+        }
+
+        const liveData = userDoc.data();
+        const currentReferralPoints = liveData.points?.referralPoints || 0;
+        const currentCodingVersePoints = liveData.points?.codingVersePoints || 0;
+        const currentStreakPoints = liveData.points?.streakPoints || 0;
+
+        const newGitRankPoints = ghStats.gitRankPoints;
+        const newTotalPoints = newGitRankPoints + currentReferralPoints + currentCodingVersePoints + currentStreakPoints;
+
+        transaction.update(userRef, {
+          "githubStats.commits": ghStats.commits,
+          "githubStats.prs": ghStats.prs,
+          "githubStats.reviews": ghStats.reviews,
+          "githubStats.repos": ghStats.publicRepos,
+          "githubStats.stars": ghStats.stars,
+          "githubStats.followers": ghStats.followers,
+          "githubStats.primaryLanguage": ghStats.primaryLanguage,
+          "points.gitRankPoints": newGitRankPoints,
+          "points.totalPoints": newTotalPoints,
+          "lastSync": new Date().toISOString()
+        });
+      });
+      console.log("Background GitHub sync completed successfully.");
+    } catch (error) {
+      console.error("Background GitHub sync failed:", error);
+    }
+  };
+
   return (
-    <AuthContext.Provider value={{ user, userData, loading, isOnboarding, login, logout, fetchGitHubStats }}>
+    <AuthContext.Provider value={{ user, userData, loading, isOnboarding, login, logout, fetchGitHubStats, syncGitHubData }}>
       {children}
     </AuthContext.Provider>
   );
