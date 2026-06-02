@@ -34,10 +34,11 @@ export const GitRank = () => {
   const [events, setEvents] = useState([]);
   const [repos, setRepos] = useState([]);
   const [loadingCharts, setLoadingCharts] = useState(true);
+  const [chartRateLimitError, setChartRateLimitError] = useState("");
 
   const languages = ["All", "TypeScript", "Rust", "Go", "Python", "Kotlin", "Ruby", "JavaScript"];
 
-  // 1. Real-time Leaderboard Listener (Initial 50 Users)
+  // 1. Real-time Leaderboard Listener (Server-Side Filtered)
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setLoadingUsers(true);
@@ -49,13 +50,20 @@ export const GitRank = () => {
       return () => clearTimeout(timer);
     }
 
-    // Switched to gitRankPoints for strict Git achievement rating
-    const q = query(
-      collection(db, "users"),
+// Build the query dynamically based on language selection and strict sorting
+    const constraints = [
       where("onboardingStatus", "==", "complete"),
-      orderBy("points.gitRankPoints", "desc"),
-      limit(50) 
-    );
+      orderBy("points.gitRankPoints", "desc")
+    ];
+
+    // DB level language filter!
+    if (selectedLanguage !== "All") {
+      constraints.push(where("githubStats.primaryLanguage", "==", selectedLanguage));
+    }
+
+    constraints.push(limit(50));
+
+    const q = query(collection(db, "users"), ...constraints);
 
     const unsubscribe = onSnapshot(
       q,
@@ -85,21 +93,27 @@ export const GitRank = () => {
     );
 
     return () => unsubscribe();
-  }, [user]);
-
+}, [user, selectedLanguage]); // Dependency array updated
   // Pagination Function (Fetch next 50)
   const loadMoreUsers = async () => {
     if (!lastVisible || !hasMore || loadingMore) return;
 
     setLoadingMore(true);
     try {
-      const nextQuery = query(
-        collection(db, "users"),
-        where("onboardingStatus", "==", "complete"),      
-        orderBy("points.gitRankPoints", "desc"),
-        startAfter(lastVisible),
-        limit(50)
-      );
+const constraints = [
+        where("onboardingStatus", "==", "complete"),
+        orderBy("points.gitRankPoints", "desc")
+      ];
+
+      // Maintain server-side language filter during pagination
+      if (selectedLanguage !== "All") {
+        constraints.push(where("githubStats.primaryLanguage", "==", selectedLanguage));
+      }
+
+      constraints.push(startAfter(lastVisible));
+      constraints.push(limit(50));
+
+      const nextQuery = query(collection(db, "users"), ...constraints);
 
       const snapshot = await getDocs(nextQuery);
 
@@ -114,14 +128,14 @@ export const GitRank = () => {
         newUsers.push(doc.data());
       });
 
-      setUsersList((prevUsers) => {
-        const combinedUsers = [...prevUsers, ...newUsers];
-        return combinedUsers.map((u, i) => ({
-          ...u,
-          rank: i + 1
-        }));
-      });
+      // Calculate ranks correctly for paginated data
+      const currentLength = usersList.length;
+      const rankedNewUsers = newUsers.map((u, i) => ({
+        ...u,
+        rank: currentLength + i + 1
+      }));
 
+      setUsersList((prevUsers) => [...prevUsers, ...rankedNewUsers]);
       setLastVisible(snapshot.docs[snapshot.docs.length - 1]);
       setHasMore(snapshot.docs.length === 50);
     } catch (error) {
@@ -137,8 +151,14 @@ export const GitRank = () => {
 
     const fetchAnalytics = async () => {
       setLoadingCharts(true);
+      setChartRateLimitError("");
       const token = sessionStorage.getItem(`gh_token_${user?.uid}`);
       const headers = token ? { Authorization: `token ${token}` } : {};
+
+      const isRateLimited = (err) => {
+        const status = err?.response?.status;
+        return status === 403 || status === 429;
+      };
 
       try {
         const eventsRes = await axios.get(
@@ -147,6 +167,13 @@ export const GitRank = () => {
         );
         setEvents(eventsRes.data || []);
       } catch (err) {
+        if (isRateLimited(err)) {
+          setChartRateLimitError(
+            "GitHub API rate limit reached. Chart data is temporarily unavailable. Please wait a few minutes and reload the page."
+          );
+          setLoadingCharts(false);
+          return;
+        }
         console.warn("Failed to fetch events for charts:", err);
       }
 
@@ -157,6 +184,13 @@ export const GitRank = () => {
         );
         setRepos(reposRes.data || []);
       } catch (err) {
+        if (isRateLimited(err)) {
+          setChartRateLimitError(
+            "GitHub API rate limit reached. Chart data is temporarily unavailable. Please wait a few minutes and reload the page."
+          );
+          setLoadingCharts(false);
+          return;
+        }
         console.warn("Failed to fetch repos for charts:", err);
       }
       setLoadingCharts(false);
@@ -244,21 +278,15 @@ export const GitRank = () => {
     return `${mins}m ${secs}s`;
   };
 
-  // Filter leaderboard lists
+  // Filter leaderboard lists (Only Search is client side now)
   const filteredData = useMemo(() => {
     return usersList.filter((user) => {
       const name = user.name || "";
       const username = user.githubUsername || "";
-      const matchesSearch =
-        name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        username.toLowerCase().includes(searchTerm.toLowerCase());
-
-      const lang = user.githubStats?.primaryLanguage || "JavaScript";
-      const matchesLang = selectedLanguage === "All" || lang === selectedLanguage;
-
-      return matchesSearch && matchesLang;
+      return name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+             username.toLowerCase().includes(searchTerm.toLowerCase());
     });
-  }, [usersList, searchTerm, selectedLanguage]);
+  }, [usersList, searchTerm]);
 
   // Grab Top 3 Contributors
   const topContributors = useMemo(() => {
@@ -535,6 +563,14 @@ export const GitRank = () => {
               </div>
             )}
           </Card>
+
+          {/* Rate limit error for charts */}
+          {chartRateLimitError && (
+            <div className="flex items-center gap-2 text-xs font-bold text-amber-600 dark:text-amber-400 bg-amber-500/10 border border-amber-500/20 px-3 py-2 rounded-xl">
+              <AlertCircle className="w-4 h-4 flex-shrink-0" />
+              <span>{chartRateLimitError}</span>
+            </div>
+          )}
 
           {/* User GitHub Graphs & Charts */}
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
