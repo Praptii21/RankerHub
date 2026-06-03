@@ -23,7 +23,10 @@ export const AuthProvider = ({ children }) => {
   const [userData, setUserData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [isOnboarding, setIsOnboarding] = useState(false);
-  const [ghAccessToken, setGhAccessToken] = useState(null);
+// GitHub OAuth access token persisted in sessionStorage to survive page refreshes
+  const [ghAccessToken, setGhAccessToken] = useState(() => {
+    return sessionStorage.getItem("gh_access_token") || null;
+  });
 
   useEffect(() => {
     let unsubscribeSnapshot = null;
@@ -36,6 +39,10 @@ export const AuthProvider = ({ children }) => {
 
       if (currentUser) {
         setUser(currentUser);
+        const token = sessionStorage.getItem(`gh_token_${currentUser.uid}`) || sessionStorage.getItem("gh_access_token");
+        if (token) {
+          setGhAccessToken(token);
+        }
         
         const userDocRef = doc(db, "users", currentUser.uid);
         
@@ -79,6 +86,10 @@ export const AuthProvider = ({ children }) => {
       const githubId = additionalInfo?.profile?.id || null;
       const avatar = additionalInfo?.profile?.avatar_url || authUser.photoURL || "";
 
+// Save the token to sessionStorage and state to keep user authenticated across refreshes
+      sessionStorage.setItem("gh_access_token", accessToken);
+      sessionStorage.setItem(`gh_token_${authUser.uid}`, accessToken);
+      setGhAccessToken(accessToken);
       setGhAccessToken(accessToken);
 
       const userDocRef = doc(db, "users", authUser.uid);
@@ -125,6 +136,10 @@ export const AuthProvider = ({ children }) => {
   const logout = async () => {
     setLoading(true);
     try {
+      if (user) {
+        sessionStorage.removeItem(`gh_token_${user.uid}`);
+      }
+      sessionStorage.removeItem("gh_access_token");
       await signOutUser();
       setUser(null);
       setUserData(null);
@@ -270,7 +285,7 @@ export const AuthProvider = ({ children }) => {
   };
 
   return (
-    <AuthContext.Provider value={{ user, userData, loading, isOnboarding, login, logout, fetchGitHubStats, syncGitHubData }}>
+<AuthContext.Provider value={{ user, userData, loading, isOnboarding, login, logout, fetchGitHubStats, syncGitHubData, ghAccessToken }}>
       {children}
     </AuthContext.Provider>
   );
