@@ -22,15 +22,36 @@ const heatmapColors = [
   "bg-violet-600 dark:bg-violet-600" // high
 ];
 
-const heatmapCells = Array.from({ length: 168 }, () => {
-  const rand = Math.random();
-  if (rand < 0.35) return 0;
-  if (rand < 0.65) return 1;
-  if (rand < 0.8) return 2;
-  if (rand < 0.93) return 3;
-  return 4;
-});
+const [heatmapCells, setHeatmapCells] = useState(
+  Array.from({ length: 168 }, () => 0)
+);
 
+useEffect(() => {
+  const fetchHeatmap = async () => {
+    const username = userData?.githubUsername;
+    if (!username) return;
+    try {
+      const res = await fetch(
+        `https://github-contributions-api.jogruber.de/v4/${username}?y=last`
+      );
+      const data = await res.json();
+      const contributions = data.contributions || [];
+      const last168 = contributions.slice(-168);
+      const cells = last168.map((day) => {
+        const c = day.count;
+        if (c === 0) return 0;
+        if (c <= 2) return 1;
+        if (c <= 5) return 2;
+        if (c <= 9) return 3;
+        return 4;
+      });
+      setHeatmapCells(cells);
+    } catch (err) {
+      console.error("Heatmap fetch error:", err);
+    }
+  };
+  fetchHeatmap();
+}, [userData?.githubUsername]);
 export const Dashboard = () => {
   const { userData } = useAuth();
   const [rank, setRank] = useState("Loading...");
@@ -81,7 +102,7 @@ export const Dashboard = () => {
 
   return (
     <div className="space-y-6">
-      
+
       {/* Page Header */}
       <SectionHeader
         title="Overview Dashboard"
@@ -91,26 +112,26 @@ export const Dashboard = () => {
 
       {/* Hero Welcome banner with Trophy */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        
+
         {/* Welcome & Trophy (Takes 2 cols) */}
         <Card className="lg:col-span-2 flex flex-col sm:flex-row items-center justify-between gap-6 p-8 bg-gradient-to-br from-violet-600/10 via-indigo-600/10 to-blue-600/10 border-violet-500/15">
           <div className="space-y-4 text-center sm:text-left">
             <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-violet-600/20 text-violet-700 dark:text-violet-400">
               <Award className="w-4 h-4 animate-bounce" /> Level {devLevel} Developer
             </div>
-            
+
             <h2 className="text-2xl md:text-3xl font-black text-slate-900 dark:text-white leading-tight my-0">
               Welcome back, {userData?.name || "Developer"}!
             </h2>
-            
+
             <p className="text-sm md:text-base text-slate-500 dark:text-slate-400 max-w-md font-medium">
               You are currently ranked <span className="font-bold text-slate-800 dark:text-white">{rank}</span> globally. Complete daily arena challenges to boost your rank!
             </p>
 
             <div className="pt-2 flex items-center justify-center sm:justify-start gap-4">
               <div className="w-full max-w-[200px] h-2 bg-slate-200 dark:bg-slate-800 rounded-full overflow-hidden">
-                <div 
-                  className="h-full bg-gradient-to-r from-violet-600 to-indigo-600 rounded-full transition-all duration-500" 
+                <div
+                  className="h-full bg-gradient-to-r from-violet-600 to-indigo-600 rounded-full transition-all duration-500"
                   style={{ width: `${levelProgressPercent}%` }}
                 />
               </div>
@@ -132,7 +153,7 @@ export const Dashboard = () => {
             <h3 className="text-lg font-extrabold text-slate-900 dark:text-white my-0">
               Your Ranking Breakdown
             </h3>
-            
+
             {/* Visual Skill Indicators */}
             <div className="space-y-2.5 pt-2">
               {[
@@ -174,7 +195,7 @@ export const Dashboard = () => {
 
       {/* Grid: Heatmap & Challenges */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        
+
         {/* Heatmap (Takes 2 cols) */}
         <Card className="lg:col-span-2 flex flex-col justify-between">
           <div className="space-y-2">
@@ -249,7 +270,7 @@ export const Dashboard = () => {
                   <span className="text-xs font-bold text-indigo-500 dark:text-indigo-400">
                     {challenge.points}
                   </span>
-                  
+
                   <button
                     disabled
                     className="px-3 py-1 text-[10px] font-bold rounded-lg bg-slate-200 dark:bg-slate-800 text-slate-400 dark:text-slate-500 border border-slate-300/10 cursor-not-allowed"
@@ -271,7 +292,7 @@ export const Dashboard = () => {
 
       {/* Grid: Streaks, Leaderboard Preview & Activity Timeline */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-        
+
         {/* Streak card (Owl flame) */}
         <StreakCard />
 
