@@ -59,7 +59,7 @@ export const GitRank = () => {
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setLoadingUsers(true);
 
-    // Build the query dynamically based on language selection and strict sorting
+// Build the query dynamically based on language selection and strict sorting
     const constraints = [
       where("onboardingStatus", "==", "complete"),
       orderBy("points.gitRankPoints", "desc"),
@@ -104,8 +104,7 @@ export const GitRank = () => {
     );
 
     return () => unsubscribe();
-  }, [selectedLanguage]); // Removed 'user' dependency to allow guest fetching
-
+}, [selectedLanguage]); // Removed 'user' dependency to allow guest fetching
   // Pagination Function (Fetch next 50)
   const loadMoreUsers = async () => {
     if (!lastVisible || !hasMore || loadingMore) return;
@@ -159,7 +158,7 @@ export const GitRank = () => {
     }
   };
 
-  // 2. Fetch GitHub Events/Repos for Charts (Authenticated Only)
+// 2. Fetch GitHub Events/Repos for Charts (Authenticated Only)
   useEffect(() => {
     if (!userData?.githubUsername) {
       // eslint-disable-next-line react-hooks/set-state-in-effect
