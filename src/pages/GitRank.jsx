@@ -10,7 +10,7 @@ import GradientButton from "../components/ui/GradientButton";
 import axios from "axios";
 
 export const GitRank = () => {
-  const { user, userData, fetchGitHubStats, login, ghAccessToken } = useAuth();
+  const { user, userData, fetchGitHubStats, login } = useAuth();
   const [searchParams] = useSearchParams();
   const [searchTerm, setSearchTerm] = useState(searchParams.get("search") || "");
   const [selectedLanguage, setSelectedLanguage] = useState("All");
@@ -93,7 +93,7 @@ export const GitRank = () => {
 
     setLoadingMore(true);
     try {
-const constraints = [
+      const constraints = [
         where("onboardingStatus", "==", "complete"),
         orderBy("points.gitRankPoints", "desc")
       ];
@@ -138,7 +138,7 @@ const constraints = [
     }
   };
 
- // 2. Fetch GitHub Events/Repos for Charts (Authenticated Only)
+// 2. Fetch GitHub Events/Repos for Charts (Authenticated Only)
   useEffect(() => {
     if (!userData?.githubUsername) {
       // eslint-disable-next-line react-hooks/set-state-in-effect
@@ -149,7 +149,7 @@ const constraints = [
     const fetchAnalytics = async () => {
       setLoadingCharts(true);
       setChartRateLimitError("");
-      const token = ghAccessToken;
+      const token = sessionStorage.getItem(`gh_token_${user?.uid}`);
       const headers = token ? { Authorization: `token ${token}` } : {};
 
       const isRateLimited = (err) => {
@@ -194,7 +194,7 @@ const constraints = [
     };
 
     fetchAnalytics();
-  }, [userData, user, ghAccessToken]);
+  }, [userData, user]);
 
   // 3. Sync GitHub Data Handler
   const handleSync = async () => {
@@ -290,7 +290,7 @@ const constraints = [
     return usersList.slice(0, 3);
   }, [usersList]);
 
-  // Chart Parsing 1: Weekly Activity
+  // Chart Parsing 1: Weekly Activity (NO FAKE DATA)
   const weeklyActivityData = useMemo(() => {
     const weeks = Array.from({ length: 8 }, (_, idx) => {
       const start = new Date();
@@ -301,19 +301,7 @@ const constraints = [
       return { start, end, commits: 0, prs: 0, reviews: 0, label };
     }).reverse();
 
-    if (!events.length) {
-      return [
-        { label: "Wk 1", commits: 2, prs: 0, reviews: 0 },
-        { label: "Wk 2", commits: 6, prs: 1, reviews: 0 },
-        { label: "Wk 3", commits: 4, prs: 0, reviews: 1 },
-        { label: "Wk 4", commits: 9, prs: 2, reviews: 0 },
-        { label: "Wk 5", commits: 14, prs: 3, reviews: 1 },
-        { label: "Wk 6", commits: 11, prs: 1, reviews: 2 },
-        { label: "Wk 7", commits: 7, prs: 4, reviews: 1 },
-        { label: "Wk 8", commits: 18, prs: 5, reviews: 3 }
-      ];
-    }
-
+    // If events are empty, it gracefully processes 0 loops and returns accurate flat 0-line graph
     events.forEach((event) => {
       const eventDate = new Date(event.created_at);
       const weekIdx = weeks.findIndex((w) => eventDate >= w.start && eventDate < w.end);
@@ -331,15 +319,10 @@ const constraints = [
     return weeks;
   }, [events]);
 
-  // Chart Parsing 2: Languages Frequency
+  // Chart Parsing 2: Languages Frequency (NO FAKE DATA)
   const languageChartData = useMemo(() => {
-    if (!repos.length) {
-      return [
-        { name: "TypeScript", count: 8, percent: 50, color: "#3178c6" },
-        { name: "JavaScript", count: 5, percent: 31, color: "#f1e05a" },
-        { name: "Python", count: 3, percent: 19, color: "#3572A5" }
-      ];
-    }
+    if (!repos.length) return []; // Explicitly return empty array when no data
+    
     const counts = {};
     repos.forEach((r) => {
       if (r.language) {
@@ -371,15 +354,10 @@ const constraints = [
       .slice(0, 5);
   }, [repos]);
 
-  // Chart Parsing 3: Repository Contributions
+  // Chart Parsing 3: Repository Contributions (NO FAKE DATA)
   const repositoryContributionData = useMemo(() => {
-    if (!events.length) {
-      return [
-        { name: "portfolio-website", commits: 15, percent: 45 },
-        { name: "react-dashboard", commits: 10, percent: 30 },
-        { name: "express-api-gateway", commits: 8, percent: 25 }
-      ];
-    }
+    if (!events.length) return []; // Explicitly return empty array when no data
+
     const counts = {};
     events.forEach((e) => {
       if (e.type === "PushEvent" && e.repo?.name) {
@@ -720,6 +698,11 @@ const constraints = [
                 <div className="h-[160px] flex items-center justify-center">
                   <div className="w-6 h-6 border-2 border-violet-500 border-t-transparent rounded-full animate-spin" />
                 </div>
+              ) : languageChartData.length === 0 ? (
+                <div className="h-[160px] flex flex-col items-center justify-center text-slate-400 space-y-2">
+                  <BookOpen className="w-8 h-8 opacity-20" />
+                  <span className="text-[11px] font-semibold">No language data found</span>
+                </div>
               ) : (
                 <div className="space-y-3.5 flex-1 flex flex-col justify-center">
                   {languageChartData.map((lang, idx) => (
@@ -762,6 +745,11 @@ const constraints = [
               {loadingCharts ? (
                 <div className="h-[160px] flex items-center justify-center">
                   <div className="w-6 h-6 border-2 border-violet-500 border-t-transparent rounded-full animate-spin" />
+                </div>
+              ) : repositoryContributionData.length === 0 ? (
+                <div className="h-[160px] flex flex-col items-center justify-center text-slate-400 space-y-2">
+                  <GitCommit className="w-8 h-8 opacity-20" />
+                  <span className="text-[11px] font-semibold">No recent activity found</span>
                 </div>
               ) : (
                 <div className="space-y-3.5 flex-1 flex flex-col justify-center">
