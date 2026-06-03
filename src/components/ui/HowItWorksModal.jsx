@@ -125,4 +125,3 @@ export const HowItWorksModal = ({ onClose }) => {
 };
 
 export default HowItWorksModal;
-//
