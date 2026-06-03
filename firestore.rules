@@ -12,11 +12,11 @@ service cloud.firestore {
       return isAuthenticated() && request.auth.uid == uid;
     }
 
-    // Helper: Check if update only affects social fields
-    function isOnlySocialUpdate() {
+    // Helper: Check if update only affects profile fields
+    function isOnlyProfileUpdate() {
       let affected = request.resource.data.diff(resource.data).affectedKeys();
-      let socialFields = ['linkedinUrl', 'instagramHandle', 'discordUsername', 'updatedAt'];
-      return affected.hasOnly(socialFields);
+      let profileFields = ['name', 'avatar', 'gender', 'dob', 'city', 'college', 'linkedinUrl', 'instagramHandle', 'discordUsername', 'updatedAt'];
+      return affected.hasOnly(profileFields);
     }
 
     match /users/{uid} {
@@ -29,9 +29,9 @@ service cloud.firestore {
       allow create: if isOwner(uid)
         && (request.resource.data.onboardingStatus == "incomplete" || request.resource.data.onboardingStatus == "complete");
 
-      // RULE 1: Allow social profile updates (LinkedIn, Instagram, Discord) ANYTIME
-      // This bypasses the strict onboarding/points rules for social links only
-      allow update: if isOwner(uid) && isOnlySocialUpdate();
+      // RULE 1: Allow profile updates (Name, Avatar, Gender, DOB, City, College, LinkedIn, Instagram, Discord) ANYTIME
+      // This bypasses the strict onboarding/points rules for profile information updates only
+      allow update: if isOwner(uid) && isOnlyProfileUpdate();
 
       // RULE 2: Original strict rules for onboarding and points updates
       allow update: if isOwner(uid) 
