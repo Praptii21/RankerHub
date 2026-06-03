@@ -14,14 +14,17 @@ export const RankHer = () => {
   // [...] = real users ranked by totalPoints
   const [womenUsers, setWomenUsers] = useState(null);
 
-  useEffect(() => {
+useEffect(() => {
     if (!user) return;
 
+    // Issue #192: Added tie-breakers to ensure deterministic sorting
     const q = query(
       collection(db, "users"),
       where("onboardingStatus", "==", "complete"),
       where("gender", "==", "female"),
-      orderBy("points.totalPoints", "desc"),
+      orderBy("points.totalPoints", "desc"), // Primary
+      orderBy("githubStats.commits", "desc"), // Tie-breaker 1
+      orderBy("githubUsername", "asc"),       // Tie-breaker 2
       limit(50)
     );
 

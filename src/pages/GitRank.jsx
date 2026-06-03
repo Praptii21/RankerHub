@@ -11,9 +11,26 @@ import axios from "axios";
 
 export const GitRank = () => {
   const { user, userData, fetchGitHubStats, login } = useAuth();
-  const [searchParams] = useSearchParams();
-  const [searchTerm, setSearchTerm] = useState(searchParams.get("search") || "");
-  const [selectedLanguage, setSelectedLanguage] = useState("All");
+  
+  // URL Parameter Sync for State Persistence
+  const [searchParams, setSearchParams] = useSearchParams();
+  const searchTerm = searchParams.get("search") || "";
+  const selectedLanguage = searchParams.get("lang") || "All";
+
+  const handleSearchChange = (e) => {
+    const val = e.target.value;
+    const newParams = new URLSearchParams(searchParams);
+    if (val) newParams.set("search", val);
+    else newParams.delete("search");
+    setSearchParams(newParams, { replace: true });
+  };
+
+  const handleLanguageChange = (lang) => {
+    const newParams = new URLSearchParams(searchParams);
+    if (lang !== "All") newParams.set("lang", lang);
+    else newParams.delete("lang");
+    setSearchParams(newParams);
+  };
   
   // Pagination States
   const [lastVisible, setLastVisible] = useState(null); 
@@ -38,15 +55,17 @@ export const GitRank = () => {
 
   const languages = ["All", "TypeScript", "Rust", "Go", "Python", "Kotlin", "Ruby", "JavaScript"];
 
-  // 1. Real-time Leaderboard Listener (Server-Side Filtered - NOW OPEN FOR GUESTS)
+  // 1. Real-time Leaderboard Listener
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setLoadingUsers(true);
 
-    // Build the query dynamically based on language selection and strict sorting
+    // Build the query dynamically based on language selection and strict algorithmic tie-breakers
     const constraints = [
       where("onboardingStatus", "==", "complete"),
-      orderBy("points.gitRankPoints", "desc")
+      orderBy("points.gitRankPoints", "desc"), // Primary Sort
+      orderBy("githubStats.commits", "desc"),  // Secondary Sort (Tie-breaker 1)
+      orderBy("githubUsername", "asc")         // Tertiary Sort (Tie-breaker 2)
     ];
 
     // DB level language filter
@@ -86,7 +105,7 @@ export const GitRank = () => {
     );
 
     return () => unsubscribe();
-  }, [selectedLanguage]); // Removed 'user' dependency to allow guest fetching
+  }, [selectedLanguage]); 
 
   // Pagination Function (Fetch next 50)
   const loadMoreUsers = async () => {
@@ -96,7 +115,9 @@ export const GitRank = () => {
     try {
       const constraints = [
         where("onboardingStatus", "==", "complete"),
-        orderBy("points.gitRankPoints", "desc")
+        orderBy("points.gitRankPoints", "desc"), // Primary Sort
+        orderBy("githubStats.commits", "desc"),  // Secondary Sort (Tie-breaker 1)
+        orderBy("githubUsername", "asc")         // Tertiary Sort (Tie-breaker 2)
       ];
 
       // Maintain server-side language filter during pagination
@@ -139,7 +160,7 @@ export const GitRank = () => {
     }
   };
 
-  // 2. Fetch GitHub Events/Repos for Charts (Authenticated Only)
+  // 2. Fetch GitHub Events/Repos for Charts
   useEffect(() => {
     if (!userData?.githubUsername) {
       // eslint-disable-next-line react-hooks/set-state-in-effect
@@ -276,7 +297,7 @@ export const GitRank = () => {
     return `${mins}m ${secs}s`;
   };
 
-  // Filter leaderboard lists (Only Search is client side now, filtering cached DB data)
+  // Filter leaderboard lists
   const filteredData = useMemo(() => {
     return usersList.filter((u) => {
       const name = u.name || "";
@@ -291,7 +312,7 @@ export const GitRank = () => {
     return usersList.slice(0, 3);
   }, [usersList]);
 
-  // Chart Parsing 1: Weekly Activity (NO FAKE DATA)
+  // Chart Parsing 1: Weekly Activity
   const weeklyActivityData = useMemo(() => {
     const weeks = Array.from({ length: 8 }, (_, idx) => {
       const start = new Date();
@@ -302,7 +323,6 @@ export const GitRank = () => {
       return { start, end, commits: 0, prs: 0, reviews: 0, label };
     }).reverse();
 
-    // If events are empty, it gracefully processes 0 loops and returns accurate flat 0-line graph
     events.forEach((event) => {
       const eventDate = new Date(event.created_at);
       const weekIdx = weeks.findIndex((w) => eventDate >= w.start && eventDate < w.end);
@@ -320,9 +340,9 @@ export const GitRank = () => {
     return weeks;
   }, [events]);
 
-  // Chart Parsing 2: Languages Frequency (NO FAKE DATA)
+  // Chart Parsing 2: Languages Frequency
   const languageChartData = useMemo(() => {
-    if (!repos.length) return []; // Explicitly return empty array when no data
+    if (!repos.length) return [];
     
     const counts = {};
     repos.forEach((r) => {
@@ -355,9 +375,9 @@ export const GitRank = () => {
       .slice(0, 5);
   }, [repos]);
 
-  // Chart Parsing 3: Repository Contributions (NO FAKE DATA)
+  // Chart Parsing 3: Repository Contributions
   const repositoryContributionData = useMemo(() => {
-    if (!events.length) return []; // Explicitly return empty array when no data
+    if (!events.length) return [];
 
     const counts = {};
     events.forEach((e) => {
@@ -870,7 +890,7 @@ export const GitRank = () => {
               type="text"
               placeholder="Search user..."
               value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
+              onChange={handleSearchChange}
               className="w-full pl-9 pr-4 py-2 text-xs rounded-xl border border-slate-200 dark:border-slate-800 bg-white/40 dark:bg-slate-950/20 focus:outline-none focus:ring-2 focus:ring-violet-500/20 focus:border-violet-500 dark:text-white transition-all"
             />
           </div>
@@ -882,7 +902,7 @@ export const GitRank = () => {
               {languages.map((lang) => (
                 <button
                   key={lang}
-                  onClick={() => setSelectedLanguage(lang)}
+                  onClick={() => handleLanguageChange(lang)}
                   className={`
                     px-2.5 py-1 text-xs font-bold rounded-lg border transition-all cursor-pointer whitespace-nowrap
                     ${
