@@ -41,18 +41,16 @@ export const Friends = () => {
         // Remove the current logged-in user from the list
         const filteredDevs = fetchedDevs.filter(dev => dev.id !== currentUser?.uid);
         setDevelopers(filteredDevs);
-        
+
         // Mock a couple of followers for UI testing (remove once #105 backend logic is done)
-        if (filteredDevs.length > 2) {
-          setFollowerIds([filteredDevs[0].id, filteredDevs[1].id]);
-        }
+
       } catch (error) {
         console.error("Failed to load developers", error);
       } finally {
         setLoading(false);
       }
     };
-    
+
     loadDevelopers();
   }, [currentUser]);
 
@@ -122,11 +120,10 @@ export const Friends = () => {
             <Link
               key={tab.id}
               to={tab.path}
-              className={`min-h-11 px-4 py-2 rounded-xl text-sm font-extrabold flex items-center gap-2 border transition-colors whitespace-nowrap ${
-                isActive
+              className={`min-h-11 px-4 py-2 rounded-xl text-sm font-extrabold flex items-center gap-2 border transition-colors whitespace-nowrap ${isActive
                   ? "text-white bg-gradient-to-r from-violet-600 to-indigo-600 border-violet-500 shadow-[0_4px_15px_rgba(124,58,237,0.25)]"
                   : "text-slate-500 dark:text-slate-300 bg-white/70 dark:bg-slate-900/70 border-slate-200/50 dark:border-slate-800/50 hover:border-violet-500/30"
-              }`}
+                }`}
             >
               <Icon className="w-4 h-4" />
               {tab.label}
