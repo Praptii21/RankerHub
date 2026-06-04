@@ -14,6 +14,7 @@ import {
 } from "firebase/firestore";
 import axios from "axios";
 import { auth, db, signInWithGitHub, signOutUser } from "../lib/firebase";
+import { validateUserData } from "../utils/inputValidation";
 
 const AuthContext = createContext({});
 
@@ -129,9 +130,21 @@ export const AuthProvider = ({ children }) => {
       const { user: authUser, accessToken, result } = await signInWithGitHub(requestRepoScope);
 
       const additionalInfo = getAdditionalUserInfo(result);
-      const githubUsername = (additionalInfo?.username || authUser.displayName || "").trim();
+      const rawUserData = {
+        githubUsername: additionalInfo?.username || authUser.displayName || "",
+        name: authUser.displayName || additionalInfo?.username || "Developer",
+        email: authUser.email || "",
+        avatar: additionalInfo?.profile?.avatar_url || authUser.photoURL || ""
+      };
+
+      // Validate and sanitize all user inputs to prevent XSS and data corruption
+      const validation = validateUserData(rawUserData);
+      if (!validation.isValid) {
+        console.warn("User data validation warnings:", validation.errors);
+      }
+
+      const sanitizedUserData = validation.sanitized;
       const githubId = additionalInfo?.profile?.id || null;
-      const avatar = additionalInfo?.profile?.avatar_url || authUser.photoURL || "";
 
       // Save the token to sessionStorage and state to keep user authenticated across refreshes
       sessionStorage.setItem("gh_access_token", accessToken);
@@ -144,11 +157,11 @@ export const AuthProvider = ({ children }) => {
       if (!docSnap.exists()) {
         const skeletalUser = {
           uid: authUser.uid,
-          githubUsername,
+          githubUsername: sanitizedUserData.githubUsername,
           githubId,
-          name: authUser.displayName || githubUsername || "Developer",
-          email: authUser.email || "",
-          avatar,
+          name: sanitizedUserData.name,
+          email: sanitizedUserData.email,
+          avatar: sanitizedUserData.avatar,
           onboardingStatus: "incomplete",
           privateRepoSyncEnabled: requestRepoScope,
           city: "",
@@ -158,7 +171,7 @@ export const AuthProvider = ({ children }) => {
           lastLogin: new Date().toISOString(),
           createdAt: new Date().toISOString(),
           points: {
-            gitRankPoints: 0, 
+            gitRankPoints: 0,
             codingVersePoints: 0,
             streakPoints: 0,
             referralPoints: 0,
