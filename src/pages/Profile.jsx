@@ -1,5 +1,5 @@
-import React, { useState, useEffect, useMemo } from "react";
-import { AnimatePresence } from "framer-motion";
+import React, { useState, useEffect, useMemo, useRef } from "react";
+import { AnimatePresence, motion } from "framer-motion";
 import LottiePlayer from "../components/ui/LottiePlayer";
 import {
   MapPin,
@@ -11,10 +11,16 @@ import {
   X,
   Save,
   Plus,
-  Activity
+  User,
+  Building2,
+  HelpCircle,
+  Search,
+  Image,
+  AlertCircle,
+  Zap
 } from "lucide-react";
 import { Github, Linkedin, Instagram } from "../components/ui/Icons";
-import { query, collection, where, getCountFromServer, doc, updateDoc, getDoc } from "firebase/firestore";
+import { query, collection, where, getCountFromServer, doc, getDoc, writeBatch, updateDoc } from "firebase/firestore";
 import { db } from "../lib/firebase";
 import { useAuth } from "../context/AuthContext";
 import successTick from "../assets/animations/succes_tick.json";
@@ -24,16 +30,171 @@ import Card from "../components/ui/Card";
 import SectionHeader from "../components/ui/SectionHeader";
 import GradientButton from "../components/ui/GradientButton";
 import Toast from "../components/ui/Toast";
+import collegesList from "../data/colleges.json";
 
 export const Profile = () => {
   const { userData, user, setUserData, syncGitHubData } = useAuth();
   const [copied, setCopied] = useState(false);
   const [rank, setRank] = useState("Loading...");
-  const [toast, setToast] = useState(null);
+  const [toasts, setToasts] = useState([]);
   const [editingSocial, setEditingSocial] = useState(null);
   const [editValue, setEditValue] = useState("");
   const [updating, setUpdating] = useState(false);
   
+  const [isEditModalOpen, setIsEditModalOpen] = useState(false);
+  const [editName, setEditName] = useState("");
+  const [editAvatar, setEditAvatar] = useState("");
+  const [editGender, setEditGender] = useState("");
+  const [editDob, setEditDob] = useState("");
+  const [editCity, setEditCity] = useState("");
+  const [editCollege, setEditCollege] = useState("");
+  const [collegeSearch, setCollegeSearch] = useState("");
+  const [showCollegeDropdown, setShowCollegeDropdown] = useState(false);
+  const [customCollege, setCustomCollege] = useState("");
+  const [editError, setEditError] = useState("");
+
+  const editDropdownRef = useRef(null);
+
+  // GitHub Real Heatmap State
+  const [githubHeatmap, setGithubHeatmap] = useState({
+    grid: Array.from({ length: 16 }, () => Array(7).fill({ intensity: 0, daysAgo: 0, count: 0 })),
+    total: 0
+  });
+
+  const filteredColleges = useMemo(() => {
+    if (collegeSearch.trim() === "" || collegeSearch === "Other") {
+      return collegesList;
+    }
+    const searchLower = collegeSearch.toLowerCase();
+    return collegesList.filter((col) => col.toLowerCase().includes(searchLower));
+  }, [collegeSearch]);
+
+  useEffect(() => {
+    const handleClickOutside = (event) => {
+      if (editDropdownRef.current && !editDropdownRef.current.contains(event.target)) {
+        setShowCollegeDropdown(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
+
+  const handleOpenEditModal = () => {
+    setEditName(userData?.name || "");
+    setEditAvatar(userData?.avatar || user?.photoURL || "");
+    setEditGender(userData?.gender || "");
+    setEditDob(userData?.dob || "");
+    setEditCity(userData?.city || "");
+    
+    const collegeVal = userData?.college || "";
+    const isCustom = collegeVal && !collegesList.includes(collegeVal);
+    if (isCustom) {
+      setEditCollege("Other");
+      setCustomCollege(collegeVal);
+      setCollegeSearch("Other");
+    } else {
+      setEditCollege(collegeVal);
+      setCollegeSearch(collegeVal);
+      setCustomCollege("");
+    }
+    
+    setEditError("");
+    setIsEditModalOpen(true);
+  };
+
+  const handleSaveProfile = async (e) => {
+    e.preventDefault();
+    if (!user) return;
+
+    setUpdating(true);
+    setEditError("");
+    
+    const finalName = editName.trim();
+    const finalCity = editCity.trim();
+    let finalCollege = editCollege;
+
+    if (!finalName) {
+      setEditError("Full name is required.");
+      setUpdating(false);
+      return;
+    }
+    if (!editGender) {
+      setEditError("Please select your gender.");
+      setUpdating(false);
+      return;
+    }
+    if (!editDob) {
+      setEditError("Please select your date of birth.");
+      setUpdating(false);
+      return;
+    }
+
+    const today = new Date().toISOString().split("T")[0];
+    if (editDob > today) {
+      setEditError("Date of birth cannot be in the future.");
+      setUpdating(false);
+      return;
+    }
+
+    const birthDate = new Date(editDob);
+    const ageLimitDate = new Date();
+    ageLimitDate.setFullYear(ageLimitDate.getFullYear() - 13);
+    if (birthDate > ageLimitDate) {
+      setEditError("You must be at least 13 years old.");
+      setUpdating(false);
+      return;
+    }
+
+    if (!finalCity) {
+      setEditError("City is required.");
+      setUpdating(false);
+      return;
+    }
+
+    if (editCollege === "Other") {
+      finalCollege = customCollege.trim();
+      if (!finalCollege) {
+        setEditError("Please specify your college name.");
+        setUpdating(false);
+        return;
+      }
+    } else if (!editCollege) {
+      setEditError("Please select a college.");
+      setUpdating(false);
+      return;
+    }
+
+    try {
+      const userRef = doc(db, "users", user.uid);
+      const updateData = {
+        name: finalName,
+        avatar: editAvatar.trim(),
+        gender: editGender,
+        dob: editDob,
+        city: finalCity,
+        college: finalCollege,
+        updatedAt: new Date().toISOString()
+      };
+
+      await updateDoc(userRef, updateData);
+
+      if (setUserData) {
+        setUserData(prev => ({
+          ...prev,
+          ...updateData
+        }));
+      }
+
+      setToasts((prev) => [...prev, { id: Date.now() + Math.random(), message: "Profile updated successfully!", type: "success" }]);
+      setIsEditModalOpen(false);
+    } catch (err) {
+      console.error("Error updating profile:", err);
+      setEditError("Failed to update profile. Please try again.");
+    } finally {
+      setUpdating(false);
+    }
+  };
+
   const [localSocialLinks, setLocalSocialLinks] = useState({
     linkedinUrl: userData?.linkedinUrl || null,
     instagramHandle: userData?.instagramHandle || null,
@@ -80,6 +241,108 @@ export const Profile = () => {
     fetchRank();
   }, [userData]);
 
+  // Fetch REAL Profile Heatmap Data for GitHub
+  useEffect(() => {
+    const fetchGithubHeatmap = async () => {
+      const username = userData?.githubUsername;
+      if (!username) return;
+
+      try {
+        const res = await fetch(`https://github-contributions-api.jogruber.de/v4/${username}?y=last`);
+        if (!res.ok) throw new Error("API Limit");
+        
+        const data = await res.json();
+        const contributions = data.contributions || [];
+
+        const last112 = contributions.slice(-112);
+        let totalActivity = 0;
+        const grid = [];
+        let currentWeek = [];
+
+        last112.forEach((day, index) => {
+          const c = day.count;
+          totalActivity += c;
+          let intensity = 0;
+          
+          if (c > 0 && c <= 2) intensity = 1;
+          else if (c > 2 && c <= 5) intensity = 2;
+          else if (c > 5 && c <= 9) intensity = 3;
+          else if (c > 9) intensity = 4;
+
+          const daysAgo = 111 - index; 
+
+          currentWeek.push({ intensity, daysAgo, count: c });
+
+          if (currentWeek.length === 7) {
+            grid.push(currentWeek);
+            currentWeek = [];
+          }
+        });
+
+        if (grid.length < 16) {
+          const diff = 16 - grid.length;
+          const padWeek = Array(7).fill({ intensity: 0, daysAgo: 0, count: 0 });
+          const padGrid = Array(diff).fill(padWeek);
+          grid.unshift(...padGrid);
+        }
+
+        setGithubHeatmap({ grid, total: totalActivity });
+      } catch (err) {
+        console.error("Profile heatmap fetch error:", err);
+        setGithubHeatmap({
+          grid: Array.from({ length: 16 }, () => Array(7).fill({ intensity: 0, daysAgo: 0, count: 0 })),
+          total: 0
+        });
+      }
+    };
+
+    fetchGithubHeatmap();
+  }, [userData?.githubUsername]);
+
+  // Issue #204: RankerHub Platform Activity Heatmap Logic
+  const platformHeatmap = useMemo(() => {
+    const logs = userData?.platformActivityLogs || [];
+    const weeks = 16;
+    const daysPerWeek = 7;
+    const data = [];
+    let activityTotal = 0;
+
+    const today = new Date();
+    today.setHours(0,0,0,0);
+
+    // Map timestamps to frequency counts
+    const activityMap = {};
+    logs.forEach(log => {
+       const d = new Date(log);
+       d.setHours(0,0,0,0);
+       const key = d.getTime();
+       activityMap[key] = (activityMap[key] || 0) + 1;
+    });
+
+    for (let w = 0; w < weeks; w++) {
+      const weekData = [];
+      for (let d = 0; d < daysPerWeek; d++) {
+        const daysAgo = ((weeks - 1 - w) * daysPerWeek) + (daysPerWeek - 1 - d);
+        const targetDate = new Date(today);
+        targetDate.setDate(today.getDate() - daysAgo);
+        const key = targetDate.getTime();
+        
+        const count = activityMap[key] || 0;
+        activityTotal += count;
+        
+        let intensity = 0;
+        if (count > 0 && count <= 2) intensity = 1;
+        else if (count > 2 && count <= 5) intensity = 2;
+        else if (count > 5 && count <= 9) intensity = 3;
+        else if (count > 9) intensity = 4;
+
+        weekData.push({ intensity, daysAgo, count });
+      }
+      data.push(weekData);
+    }
+    return { grid: data, total: activityTotal };
+  }, [userData?.platformActivityLogs]);
+
   const handleShareProfile = () => {
     const code = userData?.referralCode || "NEWCODE";
     navigator.clipboard.writeText(code);
@@ -89,27 +352,38 @@ export const Profile = () => {
 
   const getDiscordProfileUrl = (discordValue) => {
     if (!discordValue) return null;
-
     const value = discordValue.trim();
     if (!value) return null;
-
     if (/^https?:\/\//i.test(value)) {
       return value;
     }
-
     const userId = value.replace(/^@/, "");
     return `https://discord.com/users/${encodeURIComponent(userId)}`;
   };
 
   const handleUpdateSocialLink = async (type, value) => {
     if (!user) return;
-    
+
     setUpdating(true);
     try {
       const userRef = doc(db, "users", user.uid);
+
+      // Verify ownership: fetch the user document and confirm the
+      // authenticated user owns it before allowing any updates.
+      const userDocSnap = await getDoc(userRef);
+      if (!userDocSnap.exists()) {
+        setToasts((prev) => [...prev, { id: Date.now() + Math.random(), message: "Profile not found. Please try again.", type: "error" }]);
+        return;
+      }
+
+      if (userDocSnap.data().uid !== user.uid) {
+        setToasts((prev) => [...prev, { id: Date.now() + Math.random(), message: "Unauthorized: You can only update your own profile.", type: "error" }]);
+        return;
+      }
+
       const updateData = {};
       let processedValue = null;
-      
+
       if (type === "linkedin") {
         if (value && value.trim()) {
           let linkedinUrl = value.trim();
@@ -130,10 +404,13 @@ export const Profile = () => {
         }
         updateData.discordUsername = processedValue;
       }
-      
+
       updateData.updatedAt = new Date().toISOString();
-      
-      await updateDoc(userRef, updateData);
+
+      // Use Atomic Batch Write instead of updateDoc
+      const batch = writeBatch(db);
+      batch.update(userRef, updateData);
+      await batch.commit();
       
       const updatedUserDoc = await getDoc(userRef);
       const updatedData = updatedUserDoc.exists() ? updatedUserDoc.data() : null;
@@ -153,10 +430,10 @@ export const Profile = () => {
       setEditingSocial(null);
       setEditValue("");
       
-      setToast({ message: `${type.charAt(0).toUpperCase() + type.slice(1)} updated successfully!`, type: "success" });
+      setToasts((prev) => [...prev, { id: Date.now() + Math.random(), message: `${type.charAt(0).toUpperCase() + type.slice(1)} updated successfully!`, type: "success" }]);
     } catch (err) {
       console.error("Error updating social link:", err);
-      setToast({ message: `Failed to update ${type}. Please try again.`, type: "error" });
+      setToasts((prev) => [...prev, { id: Date.now() + Math.random(), message: `Failed to update ${type}. Please try again.`, type: "error" }]);
     } finally {
       setUpdating(false);
     }
@@ -168,19 +445,18 @@ export const Profile = () => {
       const isEnabling = !userData?.privateRepoSyncEnabled;
       const userRef = doc(db, "users", user.uid);
       
-      await updateDoc(userRef, { privateRepoSyncEnabled: isEnabling });
+      const batch = writeBatch(db);
+      batch.update(userRef, { privateRepoSyncEnabled: isEnabling });
+      await batch.commit();
       
       if (setUserData) {
         setUserData(prev => ({ ...prev, privateRepoSyncEnabled: isEnabling }));
       }
       
-      setToast({ 
-        message: isEnabling ? "Private repository sync enabled!" : "Private repository sync disabled.", 
-        type: "success" 
-      });
+      setToasts((prev) => [...prev, { id: Date.now() + Math.random(), message: isEnabling ? "Private repository sync enabled!" : "Private repository sync disabled.", type: "success" }]);
     } catch (err) {
       console.error("Toggle sync error:", err);
-      setToast({ message: "Failed to update sync preferences. Please try again.", type: "error" });
+      setToasts((prev) => [...prev, { id: Date.now() + Math.random(), message: "Failed to update sync preferences. Please try again.", type: "error" }]);
     }
   };
 
@@ -198,44 +474,19 @@ export const Profile = () => {
   ];
   const earnedPointsTotal = pointsEngines.reduce((sum, engine) => sum + Math.max(engine.value, 0), 0);
 
-  const heatmap = useMemo(() => {
-    const weeks = 16;
-    const daysPerWeek = 7;
-    const data = [];
-    
-    const seed = streak || 1;
-    let activityTotal = 0;
-
-    for (let w = 0; w < weeks; w++) {
-      const weekData = [];
-      for (let d = 0; d < daysPerWeek; d++) {
-        const daysAgo = ((weeks - 1 - w) * daysPerWeek) + (daysPerWeek - 1 - d);
-        let intensity; 
-        
-        if (daysAgo < streak) {
-           intensity = (daysAgo % 3) + 2; 
-        } else if (daysAgo > 111) {
-           intensity = 0; 
-        } else {
-           const pseudoRandom = Math.abs(Math.sin(daysAgo * seed) * 10000);
-           const normalized = pseudoRandom - Math.floor(pseudoRandom);
-           if (normalized > 0.8) intensity = 4;
-           else if (normalized > 0.6) intensity = 3;
-           else if (normalized > 0.4) intensity = 2;
-           else if (normalized > 0.2) intensity = 1;
-           else intensity = 0;
-        }
-        
-        activityTotal += intensity;
-        weekData.push({ intensity, daysAgo });
-      }
-      data.push(weekData);
+  // GitHub Heatmap Colors (Green/Emerald mapping)
+  const getGithubIntensityColor = (intensity) => {
+    switch(intensity) {
+      case 4: return "bg-emerald-600 dark:bg-emerald-500";
+      case 3: return "bg-emerald-500/80 dark:bg-emerald-500/80";
+      case 2: return "bg-emerald-400/60 dark:bg-emerald-400/60";
+      case 1: return "bg-emerald-300/40 dark:bg-emerald-300/40";
+      default: return "bg-slate-100 dark:bg-slate-800/50";
     }
-    
-    return { grid: data, total: activityTotal * 3 }; 
-  }, [streak]);
+  };
 
-  const getIntensityColor = (intensity) => {
+  // RankerHub Heatmap Colors (Violet/Indigo mapping)
+  const getPlatformIntensityColor = (intensity) => {
     switch(intensity) {
       case 4: return "bg-violet-600 dark:bg-violet-500";
       case 3: return "bg-violet-500/80 dark:bg-violet-500/80";
@@ -434,6 +685,9 @@ export const Profile = () => {
         badge="Verified Account"
         badgeColor="bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20"
       >
+        <GradientButton onClick={handleOpenEditModal} variant="secondary" className="py-2.5 px-4 text-xs">
+          Edit Profile
+        </GradientButton>
         <GradientButton onClick={handleShareProfile} className="py-2.5 px-4 text-xs">
           {copied ? "Code Copied!" : "Copy Referral Code"}
         </GradientButton>
@@ -475,7 +729,9 @@ export const Profile = () => {
           </p>
 
           <div className="flex flex-wrap items-center justify-center md:justify-start gap-x-6 gap-y-2 text-xs font-bold text-slate-400">
-            <span className="flex items-center gap-1"><MapPin className="w-4 h-4 text-slate-400" /> Mumbai, India</span>
+            <span className="flex items-center gap-1">
+              <MapPin className="w-4 h-4 text-slate-400" /> {userData?.city || "Mumbai"}, India
+            </span>
             <span className="flex items-center gap-1">
               <Calendar className="w-4 h-4 text-slate-400" /> Joined {userData?.createdAt ? new Date(userData.createdAt).toLocaleDateString(undefined, {month: 'long', year: 'numeric'}) : "May 2026"}
             </span>
@@ -491,16 +747,18 @@ export const Profile = () => {
               </div>
             ))}
           </div>
-
+          <div className="fixed bottom-6 right-5 z-50 flex flex-col gap-2 w-80">
             <AnimatePresence>
-              {toast && (
+              {toasts.map((toast) => (
                 <Toast
+                  key={toast.id}
                   message={toast.message}
                   type={toast.type}
-                  onClose={() => setToast(null)}
+                  onClose={() => setToasts((prev) => prev.filter((t) => t.id !== toast.id))}
                 />
-              )}
+              ))}
             </AnimatePresence>
+          </div>
         </div>
       </Card>
 
@@ -547,62 +805,126 @@ export const Profile = () => {
         ))}
       </div>
 
-      <Card className="p-6 border-slate-200/50 dark:border-slate-800/50 overflow-x-auto">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-slate-100 dark:border-slate-800 min-w-max">
-          <div>
-            <h3 className="font-extrabold text-lg text-slate-900 dark:text-white my-0 flex items-center gap-2">
-              <Activity className="w-5 h-5 text-violet-500" /> Contribution Activity
-            </h3>
-            <p className="text-xs text-slate-400 dark:text-slate-500 mt-0.5">
-              Combined GitHub commits and RankerHub platform activity over the last 16 weeks.
-            </p>
-          </div>
-          <div className="text-right">
-            <span className="block text-xl font-black text-slate-900 dark:text-white leading-none">
-              {heatmap.total.toLocaleString()}
-            </span>
-            <span className="text-[10px] text-slate-400 font-bold uppercase mt-1 block">
-              Total Contributions
-            </span>
-          </div>
-        </div>
-
-        <div className="mt-6 flex flex-col items-start min-w-max">
-          <div className="flex gap-1">
-            <div className="flex flex-col gap-1 pr-2 pt-5 text-[9px] font-bold text-slate-400 h-full justify-between">
-              <span className="h-3 leading-3">Mon</span>
-              <span className="h-3 leading-3">Wed</span>
-              <span className="h-3 leading-3">Fri</span>
+      {/* NEW SECTION: Two Heatmaps Side-by-Side */}
+      <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
+        
+        {/* 1. GitHub Contributions Heatmap */}
+        <Card className="p-6 border-slate-200/50 dark:border-slate-800/50 overflow-x-auto flex flex-col">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-slate-100 dark:border-slate-800 min-w-max">
+            <div>
+              <h3 className="font-extrabold text-lg text-slate-900 dark:text-white my-0 flex items-center gap-2">
+                <Github className="w-5 h-5 text-emerald-500" /> GitHub Activity
+              </h3>
+              <p className="text-xs text-slate-400 dark:text-slate-500 mt-0.5">
+                Verified repository commits over the last 16 weeks.
+              </p>
             </div>
+            <div className="text-right">
+              <span className="block text-xl font-black text-slate-900 dark:text-white leading-none">
+                {githubHeatmap.total.toLocaleString()}
+              </span>
+              <span className="text-[10px] text-slate-400 font-bold uppercase mt-1 block">
+                Total Commits
+              </span>
+            </div>
+          </div>
 
+          <div className="mt-6 flex flex-col items-start min-w-max flex-1">
             <div className="flex gap-1">
-              {heatmap.grid.map((week, wIdx) => (
-                <div key={wIdx} className="flex flex-col gap-1">
-                  {week.map((day, dIdx) => (
-                    <div
-                      key={`${wIdx}-${dIdx}`}
-                      className={`w-3 h-3 sm:w-4 sm:h-4 rounded-sm ${getIntensityColor(day.intensity)} transition-colors hover:ring-2 ring-slate-400/50 cursor-crosshair`}
-                      title={`${day.intensity > 0 ? day.intensity * 3 : "No"} contributions ${day.daysAgo === 0 ? "today" : `${day.daysAgo} days ago`}`}
-                    />
-                  ))}
-                </div>
-              ))}
+              <div className="grid grid-rows-7 gap-1 pr-2 text-[9px] font-bold text-slate-400">
+                <span className="row-start-2 h-3 sm:h-4 flex items-center justify-end">Mon</span>
+                <span className="row-start-4 h-3 sm:h-4 flex items-center justify-end">Wed</span>
+                <span className="row-start-6 h-3 sm:h-4 flex items-center justify-end">Fri</span>
+              </div>
+
+              <div className="flex gap-1">
+                {githubHeatmap.grid.map((week, wIdx) => (
+                  <div key={`gh-${wIdx}`} className="flex flex-col gap-1">
+                    {week.map((day, dIdx) => (
+                      <div
+                        key={`gh-${wIdx}-${dIdx}`}
+                        className={`w-3 h-3 sm:w-4 sm:h-4 rounded-sm ${getGithubIntensityColor(day.intensity)} transition-colors hover:ring-2 ring-slate-400/50 cursor-crosshair`}
+                        title={`${day.count > 0 ? day.count : "No"} commits ${day.daysAgo === 0 ? "today" : `${day.daysAgo} days ago`}`}
+                      />
+                    ))}
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div className="mt-auto pt-4 flex items-center justify-end w-full gap-2 text-[10px] font-bold text-slate-400">
+              <span>Less</span>
+              <div className="flex gap-1">
+                <div className="w-3 h-3 rounded-sm bg-slate-100 dark:bg-slate-800/50" />
+                <div className="w-3 h-3 rounded-sm bg-emerald-300/40 dark:bg-emerald-300/40" />
+                <div className="w-3 h-3 rounded-sm bg-emerald-400/60 dark:bg-emerald-400/60" />
+                <div className="w-3 h-3 rounded-sm bg-emerald-500/80 dark:bg-emerald-500/80" />
+                <div className="w-3 h-3 rounded-sm bg-emerald-600 dark:bg-emerald-500" />
+              </div>
+              <span>More</span>
+            </div>
+          </div>
+        </Card>
+
+        {/* 2. RankerHub Internal Platform Heatmap */}
+        <Card className="p-6 border-slate-200/50 dark:border-slate-800/50 overflow-x-auto flex flex-col">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-slate-100 dark:border-slate-800 min-w-max">
+            <div>
+              <h3 className="font-extrabold text-lg text-slate-900 dark:text-white my-0 flex items-center gap-2">
+                <Zap className="w-5 h-5 text-violet-500" /> Platform Activity
+              </h3>
+              <p className="text-xs text-slate-400 dark:text-slate-500 mt-0.5">
+                Internal interactions, check-ins, and CodingVerse solves.
+              </p>
+            </div>
+            <div className="text-right">
+              <span className="block text-xl font-black text-slate-900 dark:text-white leading-none">
+                {platformHeatmap.total.toLocaleString()}
+              </span>
+              <span className="text-[10px] text-slate-400 font-bold uppercase mt-1 block">
+                Platform Events
+              </span>
             </div>
           </div>
 
-          <div className="mt-4 flex items-center justify-end w-full gap-2 text-[10px] font-bold text-slate-400">
-            <span>Less</span>
+          <div className="mt-6 flex flex-col items-start min-w-max flex-1">
             <div className="flex gap-1">
-              <div className="w-3 h-3 rounded-sm bg-slate-100 dark:bg-slate-800/50" />
-              <div className="w-3 h-3 rounded-sm bg-violet-300/40 dark:bg-violet-300/40" />
-              <div className="w-3 h-3 rounded-sm bg-violet-400/60 dark:bg-violet-400/60" />
-              <div className="w-3 h-3 rounded-sm bg-violet-500/80 dark:bg-violet-500/80" />
-              <div className="w-3 h-3 rounded-sm bg-violet-600 dark:bg-violet-500" />
+              <div className="grid grid-rows-7 gap-1 pr-2 text-[9px] font-bold text-slate-400">
+                <span className="row-start-2 h-3 sm:h-4 flex items-center justify-end">Mon</span>
+                <span className="row-start-4 h-3 sm:h-4 flex items-center justify-end">Wed</span>
+                <span className="row-start-6 h-3 sm:h-4 flex items-center justify-end">Fri</span>
+              </div>
+
+              <div className="flex gap-1">
+                {platformHeatmap.grid.map((week, wIdx) => (
+                  <div key={`plat-${wIdx}`} className="flex flex-col gap-1">
+                    {week.map((day, dIdx) => (
+                      <div
+                        key={`plat-${wIdx}-${dIdx}`}
+                        className={`w-3 h-3 sm:w-4 sm:h-4 rounded-sm ${getPlatformIntensityColor(day.intensity)} transition-colors hover:ring-2 ring-slate-400/50 cursor-crosshair`}
+                        title={`${day.count > 0 ? day.count : "No"} interactions ${day.daysAgo === 0 ? "today" : `${day.daysAgo} days ago`}`}
+                      />
+                    ))}
+                  </div>
+                ))}
+              </div>
             </div>
-            <span>More</span>
+
+            <div className="mt-auto pt-4 flex items-center justify-end w-full gap-2 text-[10px] font-bold text-slate-400">
+              <span>Less</span>
+              <div className="flex gap-1">
+                <div className="w-3 h-3 rounded-sm bg-slate-100 dark:bg-slate-800/50" />
+                <div className="w-3 h-3 rounded-sm bg-violet-300/40 dark:bg-violet-300/40" />
+                <div className="w-3 h-3 rounded-sm bg-violet-400/60 dark:bg-violet-400/60" />
+                <div className="w-3 h-3 rounded-sm bg-violet-500/80 dark:bg-violet-500/80" />
+                <div className="w-3 h-3 rounded-sm bg-violet-600 dark:bg-violet-500" />
+              </div>
+              <span>More</span>
+            </div>
           </div>
-        </div>
-      </Card>
+        </Card>
+
+      </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
         
@@ -740,6 +1062,7 @@ export const Profile = () => {
               if (badge.id === "b2" && gitRankPoints >= 100) unlocked = true;
               if (badge.id === "b3" && streak >= 10) unlocked = true;
               if (badge.id === "b4" && codingVersePoints >= 100) unlocked = true;
+              if (badge.id === "b5" && referralPoints >= 1000) unlocked = true;
 
               return (
                 <div
@@ -762,7 +1085,7 @@ export const Profile = () => {
                   </div>
 
                   <div>
-                    <h4 className="font-extrabold text-slate-900 dark:text-slate-200 leading-tight flex items-center gap-1">
+                    <h4 className="font-extrabold text-slate-900 dark:text-white leading-tight flex items-center gap-1">
                       {badge.name}
                       {!unlocked && <span className="text-[8px] font-bold text-slate-400 bg-slate-100 dark:bg-slate-800 px-1 py-0.5 rounded">Locked</span>}
                     </h4>
@@ -801,6 +1124,246 @@ export const Profile = () => {
         </Card>
 
       </div>
+
+      <AnimatePresence>
+        {isEditModalOpen && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+            {/* Backdrop */}
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => {
+                if (!updating) setIsEditModalOpen(false);
+              }}
+              className="absolute inset-0 bg-slate-950/60 backdrop-blur-md"
+            />
+
+            {/* Modal Content */}
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 20 }}
+              className="relative w-full max-w-xl bg-slate-900/90 dark:bg-slate-950/90 border border-slate-800/80 rounded-3xl shadow-2xl p-6 text-slate-100 flex flex-col gap-6 max-h-[90vh] overflow-y-auto"
+            >
+              {/* Close Button */}
+              <button
+                onClick={() => setIsEditModalOpen(false)}
+                className="absolute top-4 right-4 p-2 rounded-full bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white transition cursor-pointer"
+                disabled={updating}
+              >
+                <X className="w-4 h-4" />
+              </button>
+
+              {/* Header */}
+              <div className="space-y-1">
+                <h3 className="text-xl font-black text-white my-0 flex items-center gap-2">
+                  <User className="w-5 h-5 text-violet-500" /> Edit Developer Profile
+                </h3>
+                <p className="text-xs text-slate-400 font-semibold leading-relaxed">
+                  Update your display name, profile avatar, education, and onboarding details.
+                </p>
+              </div>
+
+              {/* Edit Form */}
+              <form onSubmit={handleSaveProfile} className="space-y-4">
+                {editError && (
+                  <div className="flex items-start gap-3 p-3.5 rounded-xl bg-red-500/10 border border-red-500/20 text-red-700 dark:text-red-400 text-xs font-semibold">
+                    <AlertCircle className="w-4 h-4 flex-shrink-0 mt-0.5" />
+                    <span className="flex-1">{editError}</span>
+                  </div>
+                )}
+
+                {/* Grid for Name & Avatar URL */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  {/* Full Name */}
+                  <div className="space-y-1.5">
+                    <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider flex items-center gap-1">
+                      <User className="w-3 h-3" /> Full Name
+                    </label>
+                    <input
+                      type="text"
+                      placeholder="Enter your name"
+                      value={editName}
+                      onChange={(e) => setEditName(e.target.value)}
+                      className="w-full px-3 py-2 text-xs rounded-xl border border-slate-800 bg-slate-950/40 focus:outline-none focus:ring-2 focus:ring-violet-500/20 focus:border-violet-500 text-white transition-all"
+                    />
+                  </div>
+
+                  {/* Avatar URL */}
+                  <div className="space-y-1.5">
+                    <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider flex items-center gap-1">
+                      <Image className="w-3 h-3" /> Avatar Image URL
+                    </label>
+                    <input
+                      type="text"
+                      placeholder="Avatar image URL"
+                      value={editAvatar}
+                      onChange={(e) => setEditAvatar(e.target.value)}
+                      className="w-full px-3 py-2 text-xs rounded-xl border border-slate-800 bg-slate-950/40 focus:outline-none focus:ring-2 focus:ring-violet-500/20 focus:border-violet-500 text-white transition-all"
+                    />
+                  </div>
+                </div>
+
+                {/* Grid for Gender & DOB */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  {/* Gender */}
+                  <div className="space-y-1.5">
+                    <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider flex items-center gap-1">
+                      <HelpCircle className="w-3 h-3" /> Gender
+                    </label>
+                    <select
+                      value={editGender}
+                      onChange={(e) => setEditGender(e.target.value)}
+                      className="w-full px-3 py-2 text-xs rounded-xl border border-slate-800 bg-slate-950/40 focus:outline-none focus:ring-2 focus:ring-violet-500/20 focus:border-violet-500 text-white transition-all"
+                    >
+                      <option value="" disabled className="bg-slate-900">Select gender</option>
+                      <option value="male" className="bg-slate-900">Male</option>
+                      <option value="female" className="bg-slate-900">Female</option>
+                      <option value="non-binary" className="bg-slate-900">Non-Binary</option>
+                      <option value="prefer-not-to-say" className="bg-slate-900">Prefer not to say</option>
+                    </select>
+                  </div>
+
+                  {/* DOB */}
+                  <div className="space-y-1.5">
+                    <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider flex items-center gap-1">
+                      <Calendar className="w-3 h-3" /> Date of Birth
+                    </label>
+                    <input
+                      type="date"
+                      value={editDob}
+                      max={new Date().toISOString().split("T")[0]}
+                      onChange={(e) => setEditDob(e.target.value)}
+                      className="w-full px-3 py-2 text-xs rounded-xl border border-slate-800 bg-slate-950/40 focus:outline-none focus:ring-2 focus:ring-violet-500/20 focus:border-violet-500 text-white transition-all"
+                    />
+                  </div>
+                </div>
+
+                {/* Grid for City & College Select */}
+                <div className="space-y-4">
+                  {/* City */}
+                  <div className="space-y-1.5">
+                    <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider flex items-center gap-1">
+                      <MapPin className="w-3 h-3" /> City
+                    </label>
+                    <input
+                      type="text"
+                      placeholder="Enter your city"
+                      value={editCity}
+                      onChange={(e) => setEditCity(e.target.value)}
+                      className="w-full px-3 py-2 text-xs rounded-xl border border-slate-800 bg-slate-950/40 focus:outline-none focus:ring-2 focus:ring-violet-500/20 focus:border-violet-500 text-white transition-all"
+                    />
+                  </div>
+
+                  {/* Searchable College Dropdown */}
+                  <div className="space-y-1.5 relative" ref={editDropdownRef}>
+                    <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider flex items-center gap-1">
+                      <Building2 className="w-3 h-3" /> Mumbai College
+                    </label>
+                    
+                    <div className="relative">
+                      <Search className="w-3.5 h-3.5 text-slate-500 absolute left-3 top-1/2 -translate-y-1/2" />
+                      <input
+                        type="text"
+                        placeholder="Type to filter Mumbai colleges..."
+                        value={collegeSearch}
+                        onFocus={() => setShowCollegeDropdown(true)}
+                        onChange={(e) => {
+                          setCollegeSearch(e.target.value);
+                          setShowCollegeDropdown(true);
+                        }}
+                        className={`w-full pl-9 pr-3 py-2 text-xs rounded-xl border focus:outline-none focus:ring-2 focus:ring-violet-500/20 focus:border-violet-500 transition-all ${
+                          editCollege && editCollege !== "Other"
+                            ? "border-violet-500 bg-violet-950/20 text-violet-400 font-semibold"
+                            : "border-slate-800 bg-slate-950/40 text-white"
+                        }`}
+                      />
+                    </div>
+
+                    {/* Dropdown Menu */}
+                    <AnimatePresence>
+                      {showCollegeDropdown && (
+                        <motion.div
+                          initial={{ opacity: 0, y: 8 }}
+                          animate={{ opacity: 1, y: 0 }}
+                          exit={{ opacity: 0, y: 8 }}
+                          className="absolute z-50 left-0 right-0 mt-1 max-h-40 overflow-y-auto rounded-xl border border-slate-800 bg-slate-900 shadow-xl divide-y divide-slate-800"
+                        >
+                          {filteredColleges.length > 0 ? (
+                            filteredColleges.map((col) => (
+                              <div
+                                key={col}
+                                onClick={() => {
+                                  setEditCollege(col);
+                                  setCollegeSearch(col);
+                                  setShowCollegeDropdown(false);
+                                  if (col !== "Other") {
+                                    setCustomCollege("");
+                                  }
+                                }}
+                                className="px-3 py-2 text-xs text-slate-300 hover:bg-slate-800 cursor-pointer font-medium transition-colors"
+                              >
+                                {col}
+                              </div>
+                            ))
+                          ) : (
+                            <div className="px-3 py-2 text-xs text-slate-500 text-center font-bold">
+                              No colleges match search filter.
+                            </div>
+                          )}
+                        </motion.div>
+                      )}
+                    </AnimatePresence>
+                  </div>
+
+                  {/* Custom College Input if Other is selected */}
+                  <AnimatePresence>
+                    {editCollege === "Other" && (
+                      <motion.div
+                        initial={{ opacity: 0, height: 0 }}
+                        animate={{ opacity: 1, height: "auto" }}
+                        exit={{ opacity: 0, height: 0 }}
+                        className="space-y-1.5"
+                      >
+                        <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">
+                          Specify College Name
+                        </label>
+                        <input
+                          type="text"
+                          placeholder="Enter your college name"
+                          value={customCollege}
+                          onChange={(e) => setCustomCollege(e.target.value)}
+                          className="w-full px-3 py-2 text-xs rounded-xl border border-slate-800 bg-slate-950/40 focus:outline-none focus:ring-2 focus:ring-violet-500/20 focus:border-violet-500 text-white transition-all"
+                        />
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
+                </div>
+
+                {/* Submit & Cancel Buttons */}
+                <div className="flex gap-3 pt-2">
+                  <button
+                    type="button"
+                    onClick={() => setIsEditModalOpen(false)}
+                    className="flex-1 py-2.5 text-xs font-bold rounded-xl border border-slate-800 hover:bg-slate-800 text-slate-400 hover:text-white transition cursor-pointer"
+                    disabled={updating}
+                  >
+                    Cancel
+                  </button>
+                  <GradientButton
+                    type="submit"
+                    disabled={updating}
+                    className="flex-1 py-2.5 text-xs font-bold flex items-center justify-center gap-2"
+                  >
+                    {updating ? "Saving..." : "Save Changes"}
+                  </GradientButton>
+                </div>
+              </form>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
     </div>
   );
 };
