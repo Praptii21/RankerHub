@@ -158,17 +158,11 @@ export const AuthProvider = ({ children }) => {
           onboardingStatus: "incomplete",
           privateRepoSyncEnabled: requestRepoScope,
           city: "",
-<<<<<<< HEAD
-          streak: 1, // Start streak
-          lastLogin: today.toISOString(),
-          createdAt: today.toISOString(),
-=======
-          streak: 0,
-          longestStreak: 0,
-          githubStreak: 0,
-          lastLogin: new Date().toISOString(),
-          createdAt: new Date().toISOString(),
->>>>>>> main
+        streak: 1, // Start streak
+        longestStreak: 0,
+        githubStreak: 0,
+        lastLogin: today.toISOString(),
+        createdAt: today.toISOString(),
           points: {
             gitRankPoints: 0, 
             codingVersePoints: 0,
