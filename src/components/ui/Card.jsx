@@ -8,7 +8,6 @@ function CardComponent(props, ref) {
     className = "",
     glow = true,
     onClick,
-    hoverable: _hoverable = !!onClick,
     ...rest
   } = props;
 

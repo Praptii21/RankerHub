@@ -422,7 +422,7 @@ export const Profile = () => {
           const prop = computed[i];
           try {
             cssText += `${prop}: ${computed.getPropertyValue(prop)}; `;
-          } catch (e) {
+          } catch {
             // ignore inaccessible properties
           }
         }
@@ -650,9 +650,9 @@ export const Profile = () => {
           `;
 
           container.innerHTML = simpleHtml;
-        } catch (e) {
+        } catch {
           // Fallback: append clone directly
-          try { container.appendChild(clone); } catch (err) { container.innerHTML = clone.outerHTML; }
+          try { container.appendChild(clone); } catch { container.innerHTML = clone.outerHTML; }
         }
 
         overlay.appendChild(container);

@@ -67,7 +67,7 @@ const checkAndUpdateStreak = async (data, docRef) => {
 export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
   const [userData, setUserData] = useState(null);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(auth ? true : false);
   const [isOnboarding, setIsOnboarding] = useState(false);
   // GitHub OAuth access token persisted in sessionStorage to survive page refreshes
   const [ghAccessToken, setGhAccessToken] = useState(() => {
@@ -80,10 +80,6 @@ export const AuthProvider = ({ children }) => {
     // causes a runtime error in the browser bundle.
     if (!auth) {
       console.warn("Firebase auth is not initialized; auth listener skipped.");
-      setUser(null);
-      setUserData(null);
-      setIsOnboarding(false);
-      setLoading(false);
       return undefined;
     }
 
