@@ -13,28 +13,41 @@ export const CodingOwl = () => {
 
   // --- Habit Checklist Persistence ---
   const [habits, setHabits] = useState(() => {
-    const savedHabits = localStorage.getItem("codingOwlHabits");
-    return savedHabits ? JSON.parse(savedHabits) : habitCards;
+    if (typeof window !== "undefined") {
+      const savedHabits = localStorage.getItem("codingOwlHabits");
+      return savedHabits ? JSON.parse(savedHabits) : habitCards;
+    }
+    return habitCards;
   });
 
   useEffect(() => {
     localStorage.setItem("codingOwlHabits", JSON.stringify(habits));
   }, [habits]);
 
-  // --- Pomodoro Persistence Logic (Refactored for strict linting) ---
-  const getInitialTimerState = () => {
-    const savedEndTime = localStorage.getItem("pomodoroEndTime");
-    if (savedEndTime) {
-      const remainingTime = Math.floor((parseInt(savedEndTime, 10) - Date.now()) / 1000);
-      if (remainingTime > 0) return { timeLeft: remainingTime, active: true };
-      localStorage.removeItem("pomodoroEndTime");
+  // --- Pomodoro Persistence Logic (Strict React Purity Fix) ---
+  const [timeLeft, setTimeLeft] = useState(() => {
+    if (typeof window !== "undefined") {
+      const savedEndTime = localStorage.getItem("pomodoroEndTime");
+      if (savedEndTime) {
+        const remainingTime = Math.floor((parseInt(savedEndTime, 10) - Date.now()) / 1000);
+        if (remainingTime > 0) return remainingTime;
+      }
     }
-    return { timeLeft: 1500, active: false }; // Default 25 mins
-  };
+    return 1500; // Default 25 mins
+  });
 
-  const initialTimer = getInitialTimerState();
-  const [timeLeft, setTimeLeft] = useState(initialTimer.timeLeft);
-  const [timerActive, setTimerActive] = useState(initialTimer.active);
+  const [timerActive, setTimerActive] = useState(() => {
+    if (typeof window !== "undefined") {
+      const savedEndTime = localStorage.getItem("pomodoroEndTime");
+      if (savedEndTime) {
+        const remainingTime = Math.floor((parseInt(savedEndTime, 10) - Date.now()) / 1000);
+        if (remainingTime > 0) return true;
+        localStorage.removeItem("pomodoroEndTime");
+      }
+    }
+    return false;
+  });
+
   const timerRef = useRef(null);
 
   useEffect(() => {
@@ -56,7 +69,7 @@ export const CodingOwl = () => {
     return () => {
       if (timerRef.current) clearInterval(timerRef.current);
     };
-  }, [timerActive]); 
+  }, [timerActive]);
 
   const toggleTimer = () => {
     if (timerActive) {
