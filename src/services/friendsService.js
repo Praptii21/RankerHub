@@ -2,8 +2,6 @@ import {
   collection, 
   getDocs, 
   doc, 
-  setDoc, 
-  deleteDoc, 
   onSnapshot, 
   query, 
   where, 
@@ -35,7 +33,8 @@ export const fetchDevelopers = async () => {
         tags: data.skills || ["Developer"],
         mutualFriends: 0,
         online: false,
-        activity: "Recently joined RankerHub"
+        activity: "Recently joined RankerHub",
+        totalPoints: data.points?.totalPoints || 0
       };
     });
   } catch (error) {
