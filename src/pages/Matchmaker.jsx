@@ -9,12 +9,7 @@ import {
   RefreshCw, 
   GitPullRequest, 
   AlertCircle, 
-  CheckCircle2, 
-  Code2, 
-  Star, 
-  Sparkles,
   Info,
-  Calendar,
   Layers,
   ArrowRight
 } from "lucide-react";
@@ -75,7 +70,7 @@ const STATIC_FALLBACK_ISSUES = [
 ];
 
 export const Matchmaker = () => {
-  const { user, userData } = useAuth();
+  const { user } = useAuth();
 
   // Selected State
   const [selectedLanguage, setSelectedLanguage] = useState("javascript");
@@ -170,6 +165,7 @@ export const Matchmaker = () => {
 
   // Load issues on initial component mounting
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     fetchIssues();
   }, [fetchIssues]);
 
