@@ -213,17 +213,18 @@ export const CodingVerse = () => {
   const [activeSidebarTab, setActiveSidebarTab] = useState("stats"); // "stats" | "leaderboard"
   const [leaderboardUsers, setLeaderboardUsers] = useState([]);
   const [loadingLeaderboard, setLoadingLeaderboard] = useState(false);
+  const [leaderboardError, setLeaderboardError] = useState("");
 
   // Fetch CodingVerse Global Leaderboard (Issue #302)
   useEffect(() => {
     const fetchLeaderboard = async () => {
       if (activeSidebarTab !== "leaderboard") return;
       setLoadingLeaderboard(true);
+      setLeaderboardError("");
       try {
         const q = query(
           collection(db, "users"),
           where("onboardingStatus", "==", "complete"),
-          where("points.codingVersePoints", ">", 0),
           orderBy("points.codingVersePoints", "desc"),
           limit(20)
         );
@@ -235,6 +236,7 @@ export const CodingVerse = () => {
         setLeaderboardUsers(users);
       } catch (err) {
         console.error("Error fetching CodingVerse leaderboard:", err);
+        setLeaderboardError(err.message);
       } finally {
         setLoadingLeaderboard(false);
       }
@@ -1217,6 +1219,11 @@ export const CodingVerse = () => {
                   <div className="p-8 flex flex-col items-center justify-center gap-2 text-slate-400">
                     <Loader2 className="w-5 h-5 animate-spin" />
                     <span className="text-[10px] font-bold uppercase tracking-widest">Loading...</span>
+                  </div>
+                ) : leaderboardError ? (
+                  <div className="p-8 text-center text-red-500">
+                    <p className="text-[10px] font-bold uppercase mb-2">Error Loading Leaderboard</p>
+                    <p className="text-[9px]">{leaderboardError}</p>
                   </div>
                 ) : leaderboardUsers.length > 0 ? (
                   leaderboardUsers.map((u, idx) => (
