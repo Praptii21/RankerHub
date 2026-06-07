@@ -1,5 +1,5 @@
 import { initializeApp } from "firebase/app";
-import { connectAuthEmulator, getAuth, GithubAuthProvider, signInWithPopup, signInWithRedirect, signOut } from "firebase/auth";
+import { connectAuthEmulator, getAuth, GithubAuthProvider, signInWithRedirect, signOut } from "firebase/auth";
 import { getAnalytics } from "firebase/analytics";
 import { connectFirestoreEmulator, getFirestore } from "firebase/firestore";
 import { getStorage } from "firebase/storage";
@@ -98,38 +98,12 @@ export const signInWithGitHub = async (requestRepoScope = false) => {
   }
 
   try {
-    const result = await signInWithPopup(auth, dynamicProvider);
-    const user = result.user;
-    
-    const credential = GithubAuthProvider.credentialFromResult(result);
-    const accessToken = credential.accessToken;
-
-    // SECURITY NOTE: Never include access tokens in userData or Firestore
-    // Tokens are sensitive credentials that should only exist in memory
-    // and only be used in secure, server-side operations
-    const userData = {
-      uid: user.uid,
-      email: user.email,
-      displayName: user.displayName,
-      photoURL: user.photoURL,
-      lastLogin: new Date().toISOString(),
-      // githubAccessToken NOT included - never store tokens in Firestore
-    };
-
-    return { user, accessToken, userData, result }; 
+    // Use direct redirect login instead of popup
+    await signInWithRedirect(auth, dynamicProvider);
+    // Page will redirect to GitHub, so we return null
+    return null;
   } catch (error) {
     console.error("GitHub sign-in error:", error);
-    if (error.code === 'auth/popup-blocked') {
-      console.log("Popup blocked. Falling back to redirect...");
-      await signInWithRedirect(auth, dynamicProvider);
-      return null;
-    }
-    if (error.code === 'auth/account-exists-with-different-credential') {
-      throw new Error('An account already exists with the same email address.', { cause: error });
-    }
-    if (error.code === 'auth/popup-closed-by-user') {
-      throw new Error('Sign-in popup was closed before completing.', { cause: error });
-    }
     throw error;
   }
 };
