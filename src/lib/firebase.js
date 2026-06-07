@@ -1,5 +1,5 @@
 import { initializeApp } from "firebase/app";
-import { connectAuthEmulator, getAuth, GithubAuthProvider, signInWithRedirect, signOut } from "firebase/auth";
+import { connectAuthEmulator, getAuth, GithubAuthProvider, signInWithPopup, signOut } from "firebase/auth";
 import { getAnalytics } from "firebase/analytics";
 import { connectFirestoreEmulator, getFirestore } from "firebase/firestore";
 import { getStorage } from "firebase/storage";
@@ -98,10 +98,21 @@ export const signInWithGitHub = async (requestRepoScope = false) => {
   }
 
   try {
-    // Use direct redirect login instead of popup
-    await signInWithRedirect(auth, dynamicProvider);
-    // Page will redirect to GitHub, so we return null
-    return null;
+    const result = await signInWithPopup(auth, dynamicProvider);
+    const user = result.user;
+    
+    const credential = GithubAuthProvider.credentialFromResult(result);
+    const accessToken = credential.accessToken;
+
+    const userData = {
+      uid: user.uid,
+      email: user.email,
+      displayName: user.displayName,
+      photoURL: user.photoURL,
+      lastLogin: new Date().toISOString(),
+    };
+
+    return { user, accessToken, userData, result }; 
   } catch (error) {
     console.error("GitHub sign-in error:", error);
     throw error;

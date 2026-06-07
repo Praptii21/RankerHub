@@ -213,9 +213,9 @@ export const AuthProvider = ({ children }) => {
   }, []);
 
   const login = async (requestRepoScope = true) => {
-    setLoading(true);
     try {
       const response = await signInWithGitHub(requestRepoScope);
+      setLoading(true);
       if (!response) {
         // Fallback redirect flow triggered, page will unload shortly
         return null;
