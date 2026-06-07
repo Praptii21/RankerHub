@@ -1,4 +1,4 @@
-import React, { useMemo, useState, useEffect } from "react";
+import React, { useState, useEffect } from "react";
 import { Link, useLocation } from "react-router-dom";
 import { Activity, HeartHandshake, Trophy, UserCheck, UserPlus, UsersRound } from "lucide-react";
 import SectionHeader from "../components/ui/SectionHeader";
@@ -37,7 +37,16 @@ export const Friends = () => {
   const [loading, setLoading] = useState(true);
   const [followingIds, setFollowingIds] = useState([]);
   const [followerIds, setFollowerIds] = useState([]);
+  
+  // NEW: State to hold the asynchronously fetched connections
+  const [connections, setConnections] = useState({
+    friends: [],
+    followers: [],
+    following: [],
+    suggested: []
+  });
 
+  // 1. Initial Load & Setup Listeners
   useEffect(() => {
     let unsubFollowing = () => {};
     let unsubFollowers = () => {};
@@ -57,7 +66,6 @@ export const Friends = () => {
     if (currentUser?.uid) {
       loadDevelopers();
       
-      // Setup Real-time Firebase Listeners
       unsubFollowing = subscribeToFollowing(currentUser.uid, (ids) => {
         setFollowingIds(ids);
       });
@@ -73,13 +81,27 @@ export const Friends = () => {
     };
   }, [currentUser]);
 
-  const connections = useMemo(
-    () => hydrateConnections(developers, followingIds, followerIds),
-    [developers, followingIds, followerIds]
-  );
+  // 2. NEW: Async Hydration Effect
+  // This replaces useMemo because hydrateConnections now fetches missing users from Firestore
+  useEffect(() => {
+    let isMounted = true;
+
+    const runHydration = async () => {
+      const data = await hydrateConnections(developers, followingIds, followerIds, currentUser?.uid);
+      if (isMounted) {
+        setConnections(data);
+      }
+    };
+
+    runHydration();
+
+    return () => {
+      isMounted = false; // Prevents state updates if component unmounts during fetch
+    };
+  }, [developers, followingIds, followerIds, currentUser?.uid]);
 
   // Build a leaderboard from the user's network (followers + following, deduplicated), including the current user
-  const leaderboardStandings = useMemo(() => {
+  const leaderboardStandings = React.useMemo(() => {
     const networkMap = new Map();
 
     // Add all followers and following to the map (deduplicates by id)
@@ -110,7 +132,8 @@ export const Friends = () => {
     return Array.from(networkMap.values()).sort((a, b) => (b.totalPoints || 0) - (a.totalPoints || 0));
   }, [connections.followers, connections.following, currentUser, userData]);
 
-  const activeDevelopers = activeTab === "leaderboard" ? leaderboardStandings : connections[activeTab];
+  const activeDevelopers = activeTab === "leaderboard" ? leaderboardStandings : connections[activeTab] || [];
+  
   const tabCopy = {
     friends: "Developers who follow you back and collaborate with you across RankerHub.",
     leaderboard: "Your network ranked by total XP — see where you stand among your connections.",
