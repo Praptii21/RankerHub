@@ -46,7 +46,13 @@ export class FirestoreCache {
     const cached = this.cache.get(docPath);
     if (!cached) return;
 
-    const updated = { ...cached, ...fields };
+    // Check if cache expired
+    if (Date.now() - cached.timestamp > this.ttl) {
+      this.cache.delete(docPath);
+      return;
+    }
+
+    const updated = { ...cached.data, ...fields };
     this.set(docPath, updated);
   }
 
