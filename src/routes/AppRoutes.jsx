@@ -9,6 +9,7 @@ import GitRank from "../pages/GitRank";
 import RankHer from "../pages/RankHer";
 import CodingVerse from "../pages/CodingVerse";
 import CodingOwl from "../pages/CodingOwl";
+import Matchmaker from "../pages/Matchmaker";
 import Profile from "../pages/Profile";
 import Friends from "../pages/Friends";
 import Login from "../pages/Login";
@@ -145,6 +146,7 @@ export const AppRoutes = () => {
           <Route path="/dashboard/achievements" element={<Achievements />} />
           <Route path="/dashboard/codingverse" element={<CodingVerse />} />
           <Route path="/dashboard/codingowl" element={<CodingOwl />} />
+          <Route path="/dashboard/matchmaker" element={<Matchmaker />} />
           <Route path="/dashboard/friends" element={<Friends />} />
           <Route path="/dashboard/friends/leaderboard" element={<Friends />} />
           <Route path="/dashboard/friends/followers" element={<Friends />} />
