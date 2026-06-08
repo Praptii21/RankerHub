@@ -90,6 +90,8 @@ const GuestRoute = ({ children }) => {
   return children;
 };
 
+import CardBuilder from "../pages/CardBuilder";
+
 // An inline settings page to keep route integrated
 const SettingsPage = () => (
   <div className="space-y-6">
@@ -149,6 +151,7 @@ export const AppRoutes = () => {
           <Route path="/dashboard/friends/following" element={<Friends />} />
           <Route path="/dashboard/profile" element={<Profile />} />
           <Route path="/dashboard/profile/:username" element={<Profile />} />
+          <Route path="/dashboard/profile/card-builder" element={<CardBuilder />} />
           <Route path="/dashboard/settings" element={<SettingsPage />} />
         </Route>
 
