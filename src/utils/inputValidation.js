@@ -10,14 +10,19 @@ const URL_REGEX = /^https?:\/\/.+$/i;
 
 // Dangerous patterns that indicate XSS attempts
 const DANGEROUS_PATTERNS = [
-  /<script[\s\S]*?<\/script>/gi,
-  /<iframe[\s\S]*?<\/iframe>/gi,
-  /javascript:/gi,
-  /on(load|error|click|focus|blur|submit)\s*=/gi,
-  /<img[\s\S]*?on/gi,
-  /eval\(/gi,
-  /expression\(/gi,
+  /<script[\s\S]*?<\/script>/i,
+  /<iframe[\s\S]*?<\/iframe>/i,
+  /javascript:/i,
+  /on(load|error|click|focus|blur|submit)\s*=/i,
+  /<img[\s\S]*?on/i,
+  /eval\(/i,
+  /expression\(/i,
 ];
+
+// Global version of dangerous patterns for sanitization to remove all occurrences
+const DANGEROUS_PATTERNS_GLOBAL = DANGEROUS_PATTERNS.map(
+  (pattern) => new RegExp(pattern.source, pattern.flags + 'g')
+);
 
 /**
  * Sanitize text by removing dangerous HTML and JavaScript
@@ -29,8 +34,8 @@ export const sanitizeText = (text) => {
 
   let sanitized = text.trim();
 
-  // Remove dangerous patterns
-  for (const pattern of DANGEROUS_PATTERNS) {
+  // Remove dangerous patterns (all occurrences)
+  for (const pattern of DANGEROUS_PATTERNS_GLOBAL) {
     sanitized = sanitized.replace(pattern, '');
   }
 
