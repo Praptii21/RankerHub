@@ -10,10 +10,11 @@ permissions:
 jobs:
   assign:
     name: Handle /assign command
-    # Only run on issue comments (not PR comments) and only on open issues
+    # Only run on issue comments (not PR comments), open issues, and skip bot comments
     if: >
       github.event.issue.pull_request == null &&
       github.event.issue.state == 'open' &&
+      github.event.comment.user.type != 'Bot' &&
       contains(github.event.comment.body, '/assign')
     runs-on: ubuntu-latest
 
@@ -26,7 +27,12 @@ jobs:
             const { issue, comment } = context.payload;
             const commenter = comment.user.login;
             const issueNumber = issue.number;
+            const commentBody = comment.body.trim();
             const assignees = issue.assignees.map(a => a.login);
+
+            // Exact command check — reject '/assignees', '/assignment', etc.
+            const isExactCommand = commentBody === '/assign' || commentBody.startsWith('/assign ') || commentBody.endsWith(' /assign') || commentBody.includes('\n/assign') || commentBody.includes('/assign\n');
+            if (!isExactCommand) return;
 
             // Issue already assigned — notify and stop
             if (assignees.length > 0) {
@@ -40,12 +46,23 @@ jobs:
             }
 
             // Assign the commenter
-            await github.rest.issues.addAssignees({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              issue_number: issueNumber,
-              assignees: [commenter]
-            });
+            try {
+              await github.rest.issues.addAssignees({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: issueNumber,
+                assignees: [commenter]
+              });
+            } catch (err) {
+              console.log(`Failed to assign @${commenter}: ${err.message}`);
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: issueNumber,
+                body: `Sorry @${commenter}, I was unable to assign this issue to you. Please ping a maintainer for manual assignment.`
+              });
+              return;
+            }
 
             await github.rest.issues.createComment({
               owner: context.repo.owner,
