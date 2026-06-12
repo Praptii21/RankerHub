@@ -102,9 +102,6 @@ export const AuthProvider = ({ children }) => {
   const [ghAccessToken, setGhAccessToken] = useState(null);
 
   useEffect(() => {
-    // If Firebase wasn't configured (app === null), `auth` will be null.
-    // Avoid calling `onAuthStateChanged` with a null auth instance which
-    // causes a runtime error in the browser bundle.
     if (!auth) {
       console.warn("Firebase auth is not initialized; auth listener skipped.");
       return undefined;
@@ -112,7 +109,6 @@ export const AuthProvider = ({ children }) => {
 
     let unsubscribeSnapshot = null;
 
-    // Handle redirect result if user was redirected back
     getRedirectResult(auth)
       .then(async (result) => {
         if (result) {
@@ -121,12 +117,8 @@ export const AuthProvider = ({ children }) => {
           const accessToken = credential?.accessToken || null;
           if (accessToken) {
             setGhAccessToken(accessToken);
-
-            sessionStorage.setItem(
-            `gh_token_${authUser.uid}`,
-            accessToken
-          );
-}
+            sessionStorage.setItem(`gh_token_${authUser.uid}`, accessToken);
+          }
 
           const additionalInfo = getAdditionalUserInfo(result);
           const githubUsername = (additionalInfo?.username || authUser.displayName || "").trim();
@@ -182,13 +174,9 @@ export const AuthProvider = ({ children }) => {
 
       if (currentUser) {
         setUser(currentUser);
-        // Token is only available during the current session in memory
-        // It will be null on page refresh, requiring fresh authentication
-        // This is the secure default behavior
 
         const userDocRef = doc(db, "users", currentUser.uid);
         
-        // Try to load from cache first to reduce initial load time
         const docPath = `users/${currentUser.uid}`;
         const cachedData = userDataCache.get(docPath);
         if (cachedData) {
@@ -197,22 +185,18 @@ export const AuthProvider = ({ children }) => {
           setLoading(false);
         }
 
-        // Subscribe to real-time updates with debouncing to reduce re-renders
         unsubscribeSnapshot = onSnapshot(userDocRef, (docSnap) => {
           if (docSnap.exists()) {
             const data = docSnap.data();
 
-            // Update cache immediately for fast subsequent reads
             userDataCache.set(docPath, data);
 
-            // Debounce state updates to prevent excessive re-renders from rapid changes
             listenerOptimizer.debounce(currentUser.uid, (userData) => {
               setUserData(userData);
               setIsOnboarding(userData.onboardingStatus === "incomplete");
               setLoading(false);
             }, data);
 
-            // Update streak asynchronously
             checkAndUpdateStreak(data, userDocRef);
           } else {
             userDataCache.delete(docPath);
@@ -245,7 +229,6 @@ export const AuthProvider = ({ children }) => {
       const response = await signInWithGitHub(requestRepoScope);
       setLoading(true);
       if (!response) {
-        // Fallback redirect flow triggered, page will unload shortly
         return null;
       }
       const { user: authUser, accessToken, result } = response;
@@ -258,7 +241,6 @@ export const AuthProvider = ({ children }) => {
         avatar: additionalInfo?.profile?.avatar_url || authUser.photoURL || ""
       };
 
-      // Validate and sanitize all user inputs to prevent XSS and data corruption
       const validation = validateUserData(rawUserData);
       if (!validation.isValid) {
         console.warn("User data validation warnings:", validation.errors);
@@ -267,13 +249,8 @@ export const AuthProvider = ({ children }) => {
       const sanitizedUserData = validation.sanitized;
       const githubId = additionalInfo?.profile?.id || null;
 
-      // Store token for authenticated GitHub API requests
       setGhAccessToken(accessToken);
-
-      sessionStorage.setItem(
-        `gh_token_${authUser.uid}`,
-        accessToken
-      );
+      sessionStorage.setItem(`gh_token_${authUser.uid}`, accessToken);
 
       const userDocRef = doc(db, "users", authUser.uid);
       const docSnap = await getDoc(userDocRef);
@@ -300,7 +277,7 @@ export const AuthProvider = ({ children }) => {
           points: {
             gitRankPoints: 0,
             codingVersePoints: 0,
-            streakPoints: 10, // Base points for 1st day streak
+            streakPoints: 10,
             referralPoints: 0,
             auditorPoints: 0,
             totalPoints: 10
@@ -333,8 +310,6 @@ export const AuthProvider = ({ children }) => {
   const logout = async () => {
     setLoading(true);
     try {
-      // No need to remove from storage since token is only in memory
-      // Firebase Auth session will be cleared by signOutUser()
       await signOutUser();
       if (user?.uid) {
         sessionStorage.removeItem(`gh_token_${user.uid}`);
@@ -352,22 +327,38 @@ export const AuthProvider = ({ children }) => {
 
   const purchaseMascot = async (mascotId, price) => {
     if (!user || !userData) throw new Error("Not authenticated");
-    const currentCoins = userData.hubCoins ?? 500;
-    if (currentCoins < price) {
-      throw new Error("Insufficient HubCoins");
-    }
-    const currentInventory = userData.inventory || ["oliver"];
-    if (currentInventory.includes(mascotId)) {
-      throw new Error("Mascot already owned");
-    }
-    
+
     try {
       const userRef = doc(db, "users", user.uid);
-      await updateDoc(userRef, {
-        hubCoins: currentCoins - price,
-        inventory: [...currentInventory, mascotId],
-        updatedAt: new Date().toISOString()
+
+      await runTransaction(db, async (transaction) => {
+        // Read live Firestore data inside the transaction to prevent stale
+        // client-side state from being used as the source of truth.
+        // This guards against concurrent purchases from multiple tabs or
+        // devices spending the same hubCoins balance simultaneously.
+        const userDoc = await transaction.get(userRef);
+        if (!userDoc.exists()) throw new Error("User document not found");
+
+        const liveData = userDoc.data();
+        const liveCoins = liveData.hubCoins ?? 0;
+        const liveInventory = liveData.inventory || ["oliver"];
+
+        if (liveCoins < price) {
+          throw new Error("Insufficient HubCoins");
+        }
+
+        if (liveInventory.includes(mascotId)) {
+          throw new Error("Mascot already owned");
+        }
+
+        transaction.update(userRef, {
+          hubCoins: liveCoins - price,
+          inventory: [...liveInventory, mascotId],
+          updatedAt: new Date().toISOString()
+        });
       });
+
+      console.log(`Purchased mascot ${mascotId}`);
     } catch (err) {
       console.error("Failed to purchase mascot:", err);
       throw err;
@@ -394,8 +385,6 @@ export const AuthProvider = ({ children }) => {
   };
 
   const fetchGitHubStats = async (uid, username) => {
-    // Validate GitHub username per GitHub's rules: 1-39 characters,
-    // alphanumeric + hyphens only, no leading/trailing hyphens.
     if (!username || typeof username !== "string") {
       throw new Error("GitHub username is required and must be a string.");
     }
@@ -548,7 +537,7 @@ export const AuthProvider = ({ children }) => {
         return new Date(val).getTime();
       };
       const lastSyncTime = getTimestamp(userData.lastSync);
-      const cooldownMs = 5 * 60 * 1000; // 5 minutes
+      const cooldownMs = 5 * 60 * 1000;
       if (Date.now() - lastSyncTime < cooldownMs) {
         return;
       }
